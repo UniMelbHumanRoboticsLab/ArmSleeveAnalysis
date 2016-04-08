@@ -214,38 +214,16 @@ classdef Recording
             Ry = [1 0 0;
                 0 0 -1;
                 0 1 0];
-
-            % 'Neutral' positions of elbow (init_e) and hand (init_hd)
-            init_x = [1 0 0];
-            init_y = [0 1 0];
-            init_z = [0 0 1];
-
-            ssTs = -[0 0 1 0;
-                    -1 0 0 0;
-                    0 1 0 0;
-                    0 0 0 1];
-            hsTh = -[0 -1 0 0;
-                    1 0 0 0 ;
-                    0 0 1 0 ;
-                    0 0 0 1];
-            usTu = -[0 -1 0 0;
-                    1 0 0 0 ;
-                    0 0 1 0 ;
-                    0 0 0 1];
-            % Shoulder Angle Offsets
-            SAOx = (-10/180)*pi;
-
-            Rx = [1 0 0 0;
-                0 cos(SAOx) -sin(SAOx) 0;
-                0 sin(SAOx) cos(SAOx) 0;
+            
+            ssTs = [0 1 0 0;
+                0 0 1 0;
+                1 0 0 0;
+                0 0 0 1];
+            hsTh = [0 0 -1 0;
+                -1 0 0 0;
+                0 1 0 0 ;
                 0 0 0 1];
 
-            SAOy = (-30/180)*pi;
-
-            Ry =  [cos(SAOy) 0 sin(SAOy) 0;
-                    0 1 0 0
-                    -sin(SAOy) 0 cos(SAOy) 0;
-                    0 0 0 1];
 
             % Calculate the angles and hand position
             h = waitbar(0, 'Calculating joint angles...');
@@ -256,23 +234,23 @@ classdef Recording
                 q_u = quatinv(q(i,2:5)/quatnorm(q(i,2:5)));
                 q_s = quatinv(q(i,10:13)/quatnorm(q(i,10:13)));
 
-                c_ss = R*quatrotate(q_s,[init_x; init_y; init_z])';
-                c_hs = R*quatrotate(q_h,[init_x; init_y; init_z])';
-                c_us = R*quatrotate(q_u,[init_x; init_y; init_z])';
+                % Creates frames for shoulder, humerus and ulna sensors
+                c_ss = quatrotate(q_s,eye(3))';
+                c_hs = quatrotate(q_h,eye(3))';
+                c_us = quatrotate(q_u,eye(3))';
 
-                T_s = [c_ss, [0 0 0]'; 0 0 0 1]*ssTs*Rx*Ry;
-                T_h = [c_hs, [0 0 0]'; 0 0 0 1]*hsTh;
-                T_u = [c_us, [0 0 0]'; 0 0 0 1]*usTu;
+                c_s = [-c_ss(:,2) [-c_ss(1:2,3); c_ss(3,3)] [-c_ss(1:2,1); c_ss(3,1)] ];
+                c_h = [-c_hs(:,3) -c_hs(:,1) c_hs(:,2)];
+                c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
+
+                T_s = [c_s [0 0 0]'; 0 0 0 1];
+                T_h = [c_h [0 0 0]'; 0 0 0 1];
+                T_u = [c_u [0 0 0]'; 0 0 0 1];
                 
-                %Calculate joint positions
-                c_s = T_s(1:3,1:3);
-                c_h = T_h(1:3,1:3);
-                c_u = T_u(1:3,1:3);
-
                 p_s = c_s(:,3)*l_s;
                 p_e =  p_s - c_h(:,2)*l_h;
                 XHand(i,:) = p_e - c_u(:,2)*l_u;
-                
+
                 % Calculate Joint Angles
                 [p, e, a] = shoulderAngles(T_s,T_h);
 
