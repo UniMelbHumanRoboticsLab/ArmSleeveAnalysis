@@ -4,9 +4,15 @@ classdef Recording
         % Raw Data
         Filename
         q
-        t
         dt
-        
+    end
+    properties (GetAccess=public)
+        Arm
+        DurationMin
+        DurationSec
+        NbPts
+        t
+
         % Processed Data
         Theta
         Theta_d
@@ -15,12 +21,6 @@ classdef Recording
         XShoulder
         XElbow
         L           % Neck-Should, UA, LA
-    end
-    properties (GetAccess=public)
-        Arm
-        DurationMin
-        DurationSec
-        NbPts
         
         %Metrics
         MovIdx
@@ -676,7 +676,8 @@ classdef Recording
             %Add a red line idx if needed
             if(idx>0)
                 yl=ylim;
-                line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0]) ;
+                %Line should be of different style than actual plots !
+                line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
             end
             title('Joint angles');
             legend(['q1';'q2';'q3';'q4';'q5']);
@@ -717,7 +718,8 @@ classdef Recording
             %Add a red line idx if needed
             if(idx>0)
                 yl=ylim;
-                line([t(idx) t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0]) ;
+                %Line should be of different style than actual plots !
+                line([t(idx) t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2) ;
             end
             
             title('Hand trajectory');

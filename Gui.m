@@ -122,6 +122,9 @@ function Load_Callback(hObject, eventdata, handles)
         handles.CurrentRecording.drawTheta(0, handles.Plot1);
         handles.CurrentRecording.drawHandTraj(0, handles.Plot2);
         handles.CurrentRecording.drawArm3d(1, handles.Plot3);
+        set(handles.slider1, 'min', 1);
+        set(handles.slider1, 'max', handles.CurrentRecording.NbPts);
+        set(handles.slider1, 'value', 1);
 
         %Create other graphs
         handles.CurrentRecording.drawGlobalHandMaps(0);
@@ -184,6 +187,9 @@ function Process_Callback(hObject, eventdata, handles)
     handles.CurrentRecording.drawTheta(0, handles.Plot1);
     handles.CurrentRecording.drawHandTraj(0, handles.Plot2);
     handles.CurrentRecording.drawArm3d(1, handles.Plot3);
+    set(handles.slider1, 'min', 1);
+    set(handles.slider1, 'max', handles.CurrentRecording.NbPts);
+    set(handles.slider1, 'value', 1);
     
     %Create other graphs
     handles.CurrentRecording.drawGlobalHandMaps(0);
@@ -284,25 +290,33 @@ function slider1_Callback(hObject, eventdata, handles)
 % Hints: get(hObject,'Value') returns position of slider
 %        get(hObject,'Min') and get(hObject,'Max') to determine range of slider
 
-    idx=get(hObject,'Value');
+    idx=round(get(hObject,'Value'));
 
     %Update graphs
-    idx=round(idx*handles.CurrentRecording.NbPts)+1;
-    cla(handles.Plot1,'reset');
-    cla(handles.Plot2,'reset');
-    cla(handles.Plot3,'reset');
-    handles.CurrentRecording.drawArm3d(idx, handles.Plot3);
-    handles.CurrentRecording.drawTheta(idx, handles.Plot1);
-    handles.CurrentRecording.drawHandTraj(idx, handles.Plot2);
-
     
+    %Remove idx line and replace on 2d plots
+        h = findobj(handles.Plot1, 'Type','line','Color','r','LineStyle','--');
+        delete(h);
+        axes(handles.Plot1);
+        yl=ylim;
+        line([handles.CurrentRecording.t(idx) handles.CurrentRecording.t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
+        h = findobj(handles.Plot2, 'Type','line','Color','r','LineStyle','--');
+        delete(h);
+        axes(handles.Plot2);
+        yl=ylim;
+        line([handles.CurrentRecording.t(idx) handles.CurrentRecording.t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
+    %Full redraw 3d plot
+    cla(handles.Plot3, 'reset');
+    handles.CurrentRecording.drawArm3d(idx, handles.Plot3);
+
+
 % --- Executes during object creation, after setting all properties.
 function slider1_CreateFcn(hObject, eventdata, handles)
 % hObject    handle to slider1 (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    empty - handles not created until after all CreateFcns called
 
-% Hint: slider controls usually have a light gray background.
-if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
-    set(hObject,'BackgroundColor',[.9 .9 .9]);
-end
+    % Hint: slider controls usually have a light gray background.
+    if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+        set(hObject,'BackgroundColor',[.9 .9 .9]);
+    end
