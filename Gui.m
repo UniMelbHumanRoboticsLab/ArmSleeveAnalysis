@@ -22,7 +22,7 @@ function varargout = Gui(varargin)
 
 % Edit the above text to modify the response to help Gui
 
-% Last Modified by GUIDE v2.5 06-Apr-2016 19:38:36
+% Last Modified by GUIDE v2.5 11-Apr-2016 12:10:54
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -119,8 +119,8 @@ function Load_Callback(hObject, eventdata, handles)
         %Update graphs in the GUI
         cla(handles.Plot1,'reset');
         cla(handles.Plot2,'reset');
-        handles.CurrentRecording.drawTheta(handles.Plot1);
-        handles.CurrentRecording.drawHandTraj(handles.Plot2);
+        handles.CurrentRecording.drawTheta(0, handles.Plot1);
+        handles.CurrentRecording.drawHandTraj(0, handles.Plot2);
         handles.CurrentRecording.drawArm3d(1, handles.Plot3);
 
         %Create other graphs
@@ -181,8 +181,8 @@ function Process_Callback(hObject, eventdata, handles)
     %Update graphs in the GUI
     cla(handles.Plot1,'reset');
     cla(handles.Plot2,'reset');
-    handles.CurrentRecording.drawTheta(handles.Plot1);
-    handles.CurrentRecording.drawHandTraj(handles.Plot2);
+    handles.CurrentRecording.drawTheta(0, handles.Plot1);
+    handles.CurrentRecording.drawHandTraj(0, handles.Plot2);
     handles.CurrentRecording.drawArm3d(1, handles.Plot3);
     
     %Create other graphs
@@ -273,3 +273,36 @@ function figure1_CloseRequestFcn(hObject, eventdata, handles)
 % Hint: delete(hObject) closes the figure
     delete(hObject);
     close all;
+
+
+% --- Executes on slider movement.
+function slider1_Callback(hObject, eventdata, handles)
+% hObject    handle to slider1 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'Value') returns position of slider
+%        get(hObject,'Min') and get(hObject,'Max') to determine range of slider
+
+    idx=get(hObject,'Value');
+
+    %Update graphs
+    idx=round(idx*handles.CurrentRecording.NbPts)+1;
+    cla(handles.Plot1,'reset');
+    cla(handles.Plot2,'reset');
+    cla(handles.Plot3,'reset');
+    handles.CurrentRecording.drawArm3d(idx, handles.Plot3);
+    handles.CurrentRecording.drawTheta(idx, handles.Plot1);
+    handles.CurrentRecording.drawHandTraj(idx, handles.Plot2);
+
+    
+% --- Executes during object creation, after setting all properties.
+function slider1_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to slider1 (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: slider controls usually have a light gray background.
+if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor',[.9 .9 .9]);
+end

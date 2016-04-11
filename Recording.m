@@ -20,6 +20,7 @@ classdef Recording
         Arm
         DurationMin
         DurationSec
+        NbPts
         
         %Metrics
         MovIdx
@@ -289,6 +290,7 @@ classdef Recording
             obj.XShoulder = XShoulder';
             obj.XElbow = XElbow';
             obj.XHand = XHand';
+            obj.NbPts = length(obj.XHand);
             
             close(h);
         end
@@ -647,7 +649,7 @@ classdef Recording
             drawJointHists(obj);
         end
         
-        function h=drawTheta(obj, varargin)
+        function h=drawTheta(obj, idx, varargin)
             Theta=obj.Theta;
             t=obj.t;
             MovIdx=obj.MovIdx;
@@ -670,6 +672,12 @@ classdef Recording
             plot(t, Theta(:,3)*180/pi, 'b');
             plot(t, Theta(:,4)*180/pi, 'y');
             plot(t, Theta(:,5)*180/pi, 'm');
+            
+            %Add a red line idx if needed
+            if(idx>0)
+                yl=ylim;
+                line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0]) ;
+            end
             title('Joint angles');
             legend(['q1';'q2';'q3';'q4';'q5']);
         end
@@ -692,7 +700,7 @@ classdef Recording
             legend(['dq1';'dq2';'dq3';'dq4';'dq5']);
         end
         
-        function h=drawHandTraj(obj, varargin)
+        function h=drawHandTraj(obj, idx, varargin)
             XHand=obj.XHand;
             t=obj.t;
             if(isempty(varargin))
@@ -701,9 +709,17 @@ classdef Recording
                 axes(varargin{1});
             end
             hold on;
+            
             plot(t, XHand(:,1), 'r');
             plot(t, XHand(:,2), 'g');
             plot(t, XHand(:,3), 'b');
+            
+            %Add a red line idx if needed
+            if(idx>0)
+                yl=ylim;
+                line([t(idx) t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0]) ;
+            end
+            
             title('Hand trajectory');
             legend(['x';'y';'z']);
         end
@@ -731,6 +747,7 @@ classdef Recording
                 h=plot3([0 0 0.4 0.8]',[0 0 0 0]',[0 0 0 0]','linewidth',10);
             end
             set(h,'XData',[0 XShoulder(i, 1) XElbow(i, 1) XHand(i, 1)],'YData',[0 XShoulder(i, 2) XElbow(i, 2) XHand(i, 2)],'ZData',[0 XShoulder(3) XElbow(i, 3) XHand(i, 3)]);
+            axis equal
             title('Arm Posture');
         end
         
