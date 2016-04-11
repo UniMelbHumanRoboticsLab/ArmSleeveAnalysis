@@ -12,6 +12,8 @@ classdef Recording
         Theta_d
         XHand
         XHand_d
+        XShoulder
+        XElbow
         L           % Neck-Should, UA, LA
     end
     properties (GetAccess=public)
@@ -249,7 +251,10 @@ classdef Recording
                 
                 p_s = c_s(:,3)*l_s;
                 p_e =  p_s - c_h(:,2)*l_h;
-                XHand(i,:) = p_e - c_u(:,2)*l_u;
+                p_h = p_e - c_u(:,2)*l_u;
+                XShoulder(i,:)=p_s;
+                XElbow(i,:)=p_e;
+                XHand(i,:)=p_h;
 
                 % Calculate Joint Angles
                 [p, e, a] = shoulderAngles(T_s,T_h);
@@ -278,7 +283,11 @@ classdef Recording
             obj.t = [rawT(1):obj.dt:rawT(end)];
             theta = spline(rawT,angleDataM',obj.t);
             obj.Theta = theta';
+            XShoulder = spline(rawT,XShoulder',obj.t);
+            XElbow = spline(rawT,XElbow',obj.t);
             XHand = spline(rawT,XHand',obj.t);
+            obj.XShoulder = XShoulder';
+            obj.XElbow = XElbow';
             obj.XHand = XHand';
             
             close(h);
@@ -596,7 +605,6 @@ classdef Recording
                 obj.MovHandMap=MovHandMap;
         end
         
-        
         function obj = createJointMaps(obj)
             theta= obj.Theta;
         end
@@ -711,6 +719,20 @@ classdef Recording
             title('Hand trajectory');
         end
  
+        function h=drawArm3d(obj, i, varargin)
+            XShoulder=obj.XShoulder;
+            XElbow=obj.XElbow;
+            XHand=obj.XHand;
+            if(isempty(varargin))
+                h=figure();
+                h=plot3([0 0 0.4 0.8]',[0 0 0 0]',[0 0 0 0]','linewidth',10);
+            else
+                axes(varargin{1});
+                h=plot3([0 0 0.4 0.8]',[0 0 0 0]',[0 0 0 0]','linewidth',10);
+            end
+            set(h,'XData',[0 XShoulder(i, 1) XElbow(i, 1) XHand(i, 1)],'YData',[0 XShoulder(i, 2) XElbow(i, 2) XHand(i, 2)],'ZData',[0 XShoulder(3) XElbow(i, 3) XHand(i, 3)]);
+            title('Arm Posture');
+        end
         
         function h=drawGlobalHandMaps(obj, write)
            GlobalHandMap=obj.GlobalHandMap;

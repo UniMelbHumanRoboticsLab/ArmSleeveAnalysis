@@ -121,6 +121,7 @@ function Load_Callback(hObject, eventdata, handles)
         cla(handles.Plot2,'reset');
         handles.CurrentRecording.drawTheta(handles.Plot1);
         handles.CurrentRecording.drawHandTraj(handles.Plot2);
+        handles.CurrentRecording.drawArm3d(1, handles.Plot3);
 
         %Create other graphs
         handles.CurrentRecording.drawGlobalHandMaps(0);
@@ -182,6 +183,7 @@ function Process_Callback(hObject, eventdata, handles)
     cla(handles.Plot2,'reset');
     handles.CurrentRecording.drawTheta(handles.Plot1);
     handles.CurrentRecording.drawHandTraj(handles.Plot2);
+    handles.CurrentRecording.drawArm3d(1, handles.Plot3);
     
     %Create other graphs
     handles.CurrentRecording.drawGlobalHandMaps(0);
