@@ -1,12 +1,19 @@
 % Data from wearable sensors, and associated processing and metrics
 classdef Recording
-    properties (GetAccess=private)
+    properties (GetAccess=public)
         % Raw Data
         Filename
         q
         dt
     end
     properties (GetAccess=public)
+        %Constants
+        JointsLimits=[[-60 180];[-80 180];[-90 90];[0 160];[0 180]];
+        JointsNames={'Shoulder flexion', 'Shoulder abduction', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
+        HistNbBins;
+        
+        
+        %Recording parameters
         Arm
         DurationMin
         DurationSec
@@ -38,7 +45,9 @@ classdef Recording
         StaticJointMap
         MovJointMap
         GlobalJointMap
-        IndivJointHist
+        GlobalIndivJointHist
+        StaticIndivJointHist
+        MovIndivJointHist
         
         %For each movement
         Movements
@@ -269,10 +278,10 @@ classdef Recording
 
                 PE(i,:) = [sin(-e)*sin(p), -cos(e), sin(-e)*cos(p)];
 
-                angleDataM(i,1) = -e*cos(p);
-                angleDataM(i,2) = -e*sin(p);
-                angleDataM(i,3) = a +p+pi/2 ;
-                angleDataM(i,4:5) = angleData(i,4:5);
+                angleDataM(i,1) = -e*cos(p); %Flexion/extension (flexion forward, extension backward, -60 to 180)
+                angleDataM(i,2) = -e*sin(p); %Abduction/adduction (abduction external, -80 to 180)
+                angleDataM(i,3) = a + p;    %Axial rotation (internal -, external +, -90 to 90)
+                angleDataM(i,4:5) = angleData(i,4:5);   %Elbow flexion (0-160) and pronation (0-180)
             end
             
             waitbar(1,h,'Resampling data...')
@@ -475,7 +484,6 @@ classdef Recording
             % Now fill out the structure indicating whether a movement is
             % occuring at any particular point in time
             %TODO: WHAT IS movement: A KIND OF GLOBAL MOVEMENT INDEX ???
-            size(DoFMove(:,1)|DoFMove(:,2)|DoFMove(:,3)|DoFMove(:,4))
             obj.MovIdxPerJoint = DoFMove;
             obj.MovIdx = DoFMove(:,1)|DoFMove(:,2)|DoFMove(:,3)|DoFMove(:,4);
             obj.Movements = Movements;
@@ -612,15 +620,22 @@ classdef Recording
         end
 
         function obj = createJointHist(obj)
-            %TODO: make limit of histograms consistent w/ joint limits
-            %and update drawHist accordingly
-            Theta=obj.Theta;
-            xbins=[-pi:pi/180:pi];
+            Theta=obj.Theta.*180/pi;
+            JointsLimits=obj.JointsLimits;
+            HistNbBins=200;
+            obj.HistNbBins=HistNbBins;
+            MovIdx=obj.MovIdx;
+            MovTheta=Theta(find(MovIdx==1), :);
+            StaticTheta=Theta(find(MovIdx==0), :);
             for i=1:size(Theta, 2)
-                IndivJointHist(i,:)=hist(Theta(:, i), xbins);
+                xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
+                GlobalIndivJointHist(i,:)=hist(Theta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
+                StaticIndivJointHist(i,:)=hist(StaticTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
+                MovIndivJointHist(i,:)=hist(MovTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
             end
-            
-            obj.IndivJointHist=IndivJointHist;
+            obj.GlobalIndivJointHist=GlobalIndivJointHist;
+            obj.StaticIndivJointHist=StaticIndivJointHist;
+            obj.MovIndivJointHist=MovIndivJointHist;
         end
 
   
@@ -639,9 +654,9 @@ classdef Recording
         %% Drawing methods
         
         function obj = drawEverything(obj)
-            drawTheta(obj);
+            drawTheta(obj, 0);
             drawTheta_d(obj);
-            drawHandTraj(obj);
+            drawHandTraj(obj, 0);
             drawHandTraj3d(obj);
             drawGlobalHandMaps(obj, 0);
             drawStaticHandMaps(obj, 0);
@@ -917,16 +932,23 @@ classdef Recording
         end
         
         function h=drawJointHists(obj, varargin)
-            IndivJointHist=obj.IndivJointHist;
+            GlobalIndivJointHist=obj.GlobalIndivJointHist;
+            StaticIndivJointHist=obj.StaticIndivJointHist;
+            MovIndivJointHist=obj.MovIndivJointHist;
+            JointsLimits=obj.JointsLimits;
+            JointsNames=obj.JointsNames;
+            HistNbBins=obj.HistNbBins;
             if(isempty(varargin))
                 h=figure();
             else
                 axes(varargin{1});
             end
             %For each joint
-            for i=1:size(IndivJointHist, 1)
-                subplot(size(IndivJointHist, 1), 1, i);
-                bar([-180:1:180], IndivJointHist(i,:));
+            for i=1:size(GlobalIndivJointHist, 1)
+                subplot(size(GlobalIndivJointHist, 1), 1, i);
+                xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
+                bar(xbins, [GlobalIndivJointHist(i,:)' StaticIndivJointHist(i,:)' MovIndivJointHist(i,:)']);
+                title(JointsNames{i});
             end
         end
         
