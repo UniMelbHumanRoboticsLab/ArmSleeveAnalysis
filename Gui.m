@@ -22,10 +22,10 @@ function varargout = Gui(varargin)
 
 % Edit the above text to modify the response to help Gui
 
-% Last Modified by GUIDE v2.5 11-Apr-2016 12:10:54
+% Last Modified by GUIDE v2.5 01-Jun-2016 19:40:31
 
 % Begin initialization code - DO NOT EDIT
-gui_Singleton = 0;
+gui_Singleton = 1;
 gui_State = struct('gui_Name',       mfilename, ...
                    'gui_Singleton',  gui_Singleton, ...
                    'gui_OpeningFcn', @Gui_OpeningFcn, ...
@@ -140,6 +140,7 @@ function Load_Callback(hObject, eventdata, handles)
         set(handles.PlayPause,'enable','off');
         set(handles.Load,'enable','on');
         set(handles.Save,'enable','off');
+        set(handles.ExportCSV,'enable','on');
         set(handles.FilenameEdit,'string',filename);
         
         %Not busy anymore
@@ -205,6 +206,7 @@ function Process_Callback(hObject, eventdata, handles)
     set(handles.PlayPause,'enable','on');
     set(handles.Load,'enable','on');
     set(handles.Save,'enable','on');
+    set(handles.ExportCSV,'enable','on');
     
     %Not busy anymore
     set(handles.figure1, 'pointer', 'arrow');
@@ -235,6 +237,7 @@ function Open_Callback(hObject, eventdata, handles)
         set(handles.Process,'enable','on');
         set(handles.PlayPause,'enable','off');
         set(handles.Load,'enable','on');
+        set(handles.ExportCSV,'enable','off');
         set(handles.Save,'enable','off');
         set(handles.FilenameEdit,'string',filename);
     end
@@ -320,3 +323,11 @@ function slider1_CreateFcn(hObject, eventdata, handles)
     if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
         set(hObject,'BackgroundColor',[.9 .9 .9]);
     end
+
+
+% --- Executes on button press in ExportCSV.
+function ExportCSV_Callback(hObject, eventdata, handles)
+% hObject    handle to ExportCSV (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+    handles.CurrentRecording=handles.CurrentRecording.exportAllCSV();

@@ -989,9 +989,14 @@ classdef Recording
             end
         end
         
-        
+
+
         %% Export methods (to csv files)
         
+        function obj = exportAllCSV(obj)
+            obj.exportHeatMaps();
+        end
+
         function exportHeatMaps(obj)
             StaticHandMapSide=obj.StaticHandMap{1};
             StaticHandMapFront=obj.StaticHandMap{2};
@@ -1002,7 +1007,6 @@ classdef Recording
             csvwrite([obj.Filename '_MovHeatMapSide.csv'], MovHandMapSide);
             csvwrite([obj.Filename '_MovHeatMapFront.csv'], MovHandMapFront);
         end
-            
         
     end
     
