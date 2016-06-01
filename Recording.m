@@ -812,7 +812,6 @@ classdef Recording
         function h=drawGlobalHandMaps(obj, write)
            GlobalHandMap=obj.GlobalHandMap;
            L=obj.L;
-           %XHand=obj.XHand;
             
            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
            
@@ -821,6 +820,7 @@ classdef Recording
            ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
            ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
            WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+
             
            h=figure();
            colormap(hot);
@@ -988,6 +988,21 @@ classdef Recording
                 title(JointsNames{i});
             end
         end
+        
+        
+        %% Export methods (to csv files)
+        
+        function exportHeatMaps(obj)
+            StaticHandMapSide=obj.StaticHandMap{1};
+            StaticHandMapFront=obj.StaticHandMap{2};
+            MovHandMapSide=obj.MovHandMap{1};
+            MovHandMapFront=obj.MovHandMap{2};
+            csvwrite([obj.Filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
+            csvwrite([obj.Filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
+            csvwrite([obj.Filename '_MovHeatMapSide.csv'], MovHandMapSide);
+            csvwrite([obj.Filename '_MovHeatMapFront.csv'], MovHandMapFront);
+        end
+            
         
     end
     
