@@ -21,10 +21,12 @@ classdef Recording
         t
 
         % Processed Data
-        Theta
-        Theta_d
-        XHand
-        XHand_d
+        Theta %Actual joint angles
+        Theta_d %Joint velocities
+        SimplifiedTheta %Joint angles as: shoulder elevation (away from body) and elbow flexion
+        SimplifiedTheta_d %Joint velocities
+        XHand %Cartesian hand positions
+        XHand_d %Cartesian hand velocities
         XShoulder
         XElbow
         L           % Neck-Should, UA, LA
@@ -213,6 +215,7 @@ classdef Recording
             angleData = zeros(length(obj.q), 5);
             angleDataM = zeros(length(obj.q), 5);
             XHand = zeros(length(obj.q), 3);
+            SimplifiedTheta = zeros(length(obj.q), 2);
             %segments lengths
             l_s=obj.L(1);
             l_h=obj.L(2);
@@ -276,6 +279,10 @@ classdef Recording
                 angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));
 
                 PE(i,:) = [sin(-e)*sin(p), -cos(e), sin(-e)*cos(p)];
+                
+                
+                SimplifiedTheta(i,1) = -e;
+                SimplifiedTheta(i,2) = angleData(i,4);
 
                 angleDataM(i,1) = -e*cos(p); %Abduction/adduction (abduction external, -80 to 180)
                 angleDataM(i,2) = -e*sin(p); %Flexion/extension (flexion forward, extension backward, -80 to 180)
@@ -320,9 +327,11 @@ classdef Recording
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
             XHand = spline(rawT,XHand',obj.t);
+            SimplifiedTheta = spline(rawT,SimplifiedTheta',obj.t);
             obj.XShoulder = XShoulder';
             obj.XElbow = XElbow';
             obj.XHand = XHand';
+            obj.SimplifiedTheta = SimplifiedTheta';
             obj.NbPts = length(obj.XHand);
             
             close(h);
@@ -331,6 +340,7 @@ classdef Recording
         
         function obj = calcDoFVelocities(obj)
             theta = obj.Theta;
+            simplified_theta = obj.SimplifiedTheta;
             t = obj.t;
             
             % Calculate the angular velocities of each DoF
@@ -340,12 +350,22 @@ classdef Recording
                 theta_dot(i,:) = (theta(i+1,:)-theta(i,:))/dt;
             end
             theta_dot(length(t),:) = (theta(length(t),:)-theta(length(t)-1,:))/dt;
-            
+            % And filter
             Fs = 1/(t(2)-t(1));
             Fc = 10; 
             [b,a] = butter(5, Fc/Fs);
-            
             obj.Theta_d = filter(b, a, theta_dot);
+            
+            % Calculate the angular velocities of simplified DoFs
+            simplified_theta_dot = zeros(length(t), 2);
+            dt = t(2)-t(1);
+            for i = 1:length(t)-1
+                simplified_theta_dot(i,:) = (simplified_theta(i+1,:)-simplified_theta(i,:))/dt;
+            end
+            simplified_theta_dot(length(t),:) = (simplified_theta(length(t),:)-simplified_theta(length(t)-1,:))/dt;
+            % And filter
+            [b,a] = butter(5, Fc/Fs);
+            obj.SimplifiedTheta_d = filter(b, a, simplified_theta_dot);
         end
         
         %MATLAB can't find it for whatever reason...
@@ -694,7 +714,9 @@ classdef Recording
         
         function obj = drawEverything(obj)
             drawTheta(obj, 0);
+            drawSimplifiedTheta(obj, 0);
             drawTheta_d(obj);
+            drawSimplifiedTheta_d(obj);
             drawHandTraj(obj, 0);
             drawHandTraj3d(obj);
             drawGlobalHandMaps(obj, 0);
@@ -723,11 +745,11 @@ classdef Recording
                 end
             end
 
-            plot(t, Theta(:,1)*180/pi, 'r');
-            plot(t, Theta(:,2)*180/pi, 'g');
-            plot(t, Theta(:,3)*180/pi, 'b');
-            plot(t, Theta(:,4)*180/pi, 'y');
-            plot(t, Theta(:,5)*180/pi, 'm');
+            p(1)=plot(t, Theta(:,1)*180/pi, 'r');
+            p(2)=plot(t, Theta(:,2)*180/pi, 'g');
+            p(3)=plot(t, Theta(:,3)*180/pi, 'b');
+            p(4)=plot(t, Theta(:,4)*180/pi, 'y');
+            p(5)=plot(t, Theta(:,5)*180/pi, 'm');
             
             %Add a red line idx if needed
             if(idx>0)
@@ -736,7 +758,41 @@ classdef Recording
                 line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
             end
             title('Joint angles');
-            legend(['q1';'q2';'q3';'q4';'q5']);
+            legend(p, ['q1';'q2';'q3';'q4';'q5']);
+        end
+        
+        function h=drawSimplifiedTheta(obj, idx, varargin)
+            SimplifiedTheta=obj.SimplifiedTheta;
+            t=obj.t;
+            MovIdx=obj.MovIdx;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            hold on;
+            %Add movements area if any
+            if(~isempty(MovIdx))
+                yl=[min(min(SimplifiedTheta*180/pi)) max(max(SimplifiedTheta*180/pi))];
+                for i=1:length(t)
+                    if(MovIdx(i)==1)
+                        line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+                    end
+                end
+            end
+
+            p(1)=plot(t, SimplifiedTheta(:,1)*180/pi, 'r');
+            p(2)=plot(t, SimplifiedTheta(:,2)*180/pi, 'g');
+            
+            title('Simplified joint angles');
+            legend(p, {'Shoulder';'Elbow'});
+            
+            %Add a red line idx if needed
+            if(idx>0)
+                yl=ylim;
+                %Line should be of different style than actual plots !
+                line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
+            end
         end
         
         function h=drawTheta_d(obj, varargin)
@@ -755,6 +811,21 @@ classdef Recording
             plot(t, Theta_d(:,5)*180/pi, 'm');
             title('Joint velocities');
             legend(['dq1';'dq2';'dq3';'dq4';'dq5']);
+        end
+        
+        function h=drawSimplifiedTheta_d(obj, varargin)
+            SimplifiedTheta_d=obj.SimplifiedTheta_d;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            hold on;
+            plot(t, SimplifiedTheta_d(:,1)*180/pi, 'r');
+            plot(t, SimplifiedTheta_d(:,2)*180/pi, 'g');
+            title('Simplified joint velocities');
+            legend({'Shoulder';'Elbow'});
         end
         
         function h=drawHandTraj(obj, idx, varargin)
