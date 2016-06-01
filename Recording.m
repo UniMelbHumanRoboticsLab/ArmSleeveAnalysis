@@ -272,6 +272,8 @@ classdef Recording
                 angleData(i,1) = p;
                 angleData(i,2) = e;
                 angleData(i,3) = a;
+                tmp_e(i)=e;
+                tmp_p(i)=p;
 
                 angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
                 angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));   
@@ -283,6 +285,11 @@ classdef Recording
                 angleDataM(i,3) = a + p;    %Axial rotation (internal -, external +, -90 to 90)
                 angleDataM(i,4:5) = angleData(i,4:5);   %Elbow flexion (0-160) and pronation (0-180)
             end
+            figure();
+            subplot(2,1,1);hold on;
+            plot([tmp_p;tmp_e]');
+            subplot(2,1,2);hold on;
+            plot([angleDataM(:,1) angleDataM(:,2) angleDataM(:,3)]);
             
             waitbar(1,h,'Resampling data...')
             
@@ -532,8 +539,14 @@ classdef Recording
  
         function obj = calcROM(obj)
             % Requires 
-            theta = obj.Theta;
+            Theta = obj.Theta;
             
+            %For each joint
+            for i=1:size(Theta, 2)
+                ROM(i, 1)=min(Theta(:,i));
+                ROM(i, 2)=max(Theta(:,i));
+            end
+            obj.ROM=ROM;
         end
 
         function obj = calcNumMov(obj)
@@ -554,17 +567,27 @@ classdef Recording
         end
 
 
-        function obj = createHandMaps(obj) %RESOLUTION as a parameter ?
-            L=obj.L;
+        
+        function [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj)%RESOLUTION as a parameter ?
+            L=obj.L; % Neck-Should, UA, LA
+
+            Resolution=0.02;
+            %Center at neck point
+            XEdges=[-(L(2)+L(3)):Resolution:L(2)+L(3)]; %X positive forward
+            if(obj.Arm=='R')
+                YEdges=[-(L(2)+L(3)+L(1)):Resolution:(L(2)+L(3)-L(1))]; %Y positive subject left
+            else
+                YEdges=[-(L(2)+L(3)-L(1)):Resolution:(L(2)+L(3)+L(1))]; %Y positive subject left
+            end
+            ZEdges=[-(L(2)+L(3)):Resolution:L(2)+L(3)]; %Z positive up
+        end
+        
+        function obj = createHandMaps(obj)
+            L=obj.L; % Neck-Should, UA, LA
             XHand=obj.XHand;
             
-            Resolution=0.02;
-            % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-            XEdges=[-0.6:Resolution:0.8];
-            YEdges=[-0.8:Resolution:0.8];
-            ZEdges=[-0.9:Resolution:0.6];
-            
-            
+            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+
             %Global (all postures) histograms
                 %Sagittal: Histogram x,z: side view, x positive forward, z positive up
                 [XZCount, XZEdges, XZMid, XZLoc]=histcn([XHand(:,1) XHand(:,3)], XEdges, ZEdges);
@@ -578,7 +601,7 @@ classdef Recording
 
                 obj.GlobalHandMap=GlobalHandMap;
 
-                
+
             %Static only postures histograms
                 MovIdx=obj.MovIdx;
                 XHand=obj.XHand;
@@ -595,8 +618,8 @@ classdef Recording
                 StaticHandMap{2}=(ZYCount(end:-1:1, :)+1).*50;
 
                 obj.StaticHandMap=StaticHandMap;
-                
-            
+
+
             %Movement only postures histograms
                 MovIdx=obj.MovIdx;
                 XHand=obj.XHand;
@@ -640,7 +663,6 @@ classdef Recording
 
   
         %% Per Movement Metrics
-
         function obj = calcPMROM(obj)
             
         end
@@ -650,7 +672,7 @@ classdef Recording
         
         function obj = calcPMRatioSwivel(obj)
         end
-        
+
         %% Drawing methods
         
         function obj = drawEverything(obj)
@@ -674,14 +696,16 @@ classdef Recording
                 axes(varargin{1});
             end
             hold on;
-            %Add movements area
-            yl=[min(min(Theta*180/pi)) max(max(Theta*180/pi))];
-            for i=1:length(t)
-                if(MovIdx(i)==1)
-                    line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+            %Add movements area if any
+            if(~isempty(MovIdx))
+                yl=[min(min(Theta*180/pi)) max(max(Theta*180/pi))];
+                for i=1:length(t)
+                    if(MovIdx(i)==1)
+                        line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+                    end
                 end
             end
-            
+
             plot(t, Theta(:,1)*180/pi, 'r');
             plot(t, Theta(:,2)*180/pi, 'g');
             plot(t, Theta(:,3)*180/pi, 'b');
@@ -773,11 +797,8 @@ classdef Recording
            L=obj.L;
            %XHand=obj.XHand;
             
-           Resolution=0.02;
-           % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-           XEdges=[-0.6:Resolution:0.8];
-           YEdges=[-0.8:Resolution:0.8];
-           ZEdges=[-0.9:Resolution:0.6];
+           [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+           
            %Where is (0,0,0) in the edges ? Z has to be inverted
            NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
            ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
@@ -825,13 +846,9 @@ classdef Recording
         function h=drawStaticHandMaps(obj, write)
            StaticHandMap=obj.StaticHandMap;
            L=obj.L;
-           %XHand=obj.XHand;
-            
-           Resolution=0.02;
-           % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-           XEdges=[-0.6:Resolution:0.8];
-           YEdges=[-0.8:Resolution:0.8];
-           ZEdges=[-0.9:Resolution:0.6];
+           
+           [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+           
            %Where is (0,0,0) in the edges ? Z has to be inverted
            NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
            ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
@@ -879,18 +896,21 @@ classdef Recording
         function h=drawMovHandMaps(obj, write)
            MovHandMap=obj.MovHandMap;
            L=obj.L;
-           %XHand=obj.XHand;
             
-           Resolution=0.02;
-           % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-           XEdges=[-0.6:Resolution:0.8];
-           YEdges=[-0.8:Resolution:0.8];
-           ZEdges=[-0.9:Resolution:0.6];
+           [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           if(obj.Arm=='R')
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           else
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           end
             
            h=figure();
            colormap(hot);
