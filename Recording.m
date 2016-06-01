@@ -8,8 +8,8 @@ classdef Recording
     end
     properties (GetAccess=public)
         %Constants
-        JointsLimits=[[-60 180];[-80 180];[-90 90];[0 160];[0 180]];
-        JointsNames={'Shoulder flexion', 'Shoulder abduction', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
+        JointsLimits=[[-80 180];[-80 180];[-90 90];[0 160];[0 180]];
+        JointsNames={'Shoulder abduction', 'Shoulder flexion', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
         HistNbBins;
         
         
@@ -272,23 +272,40 @@ classdef Recording
                 angleData(i,1) = p;
                 angleData(i,2) = e;
                 angleData(i,3) = a;
-                tmp_e(i)=e;
-                tmp_p(i)=p;
-
                 angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
-                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));   
+                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));
 
                 PE(i,:) = [sin(-e)*sin(p), -cos(e), sin(-e)*cos(p)];
 
-                angleDataM(i,1) = -e*cos(p); %Flexion/extension (flexion forward, extension backward, -60 to 180)
-                angleDataM(i,2) = -e*sin(p); %Abduction/adduction (abduction external, -80 to 180)
+                angleDataM(i,1) = -e*cos(p); %Abduction/adduction (abduction external, -80 to 180)
+                angleDataM(i,2) = -e*sin(p); %Flexion/extension (flexion forward, extension backward, -80 to 180)
+                if(i>1 && abs(angleDataM(i,2)>0.1) && sign(angleDataM(i,2))~=sign(angleDataM(i-1,2)) )
+                    angleDataM(i,2)=-angleDataM(i,2);
+                end
                 angleDataM(i,3) = a + p;    %Axial rotation (internal -, external +, -90 to 90)
+                tmp1(i)=angleDataM(i,3);
+                   if(i>1)
+                        currentjump=(angleDataM(i,3)-angleDataM(i-1,3));
+                        if(i==2)
+                            jump=currentjump;
+                        end
+                        if(abs(currentjump-jump)>pi/2-0.1)
+                            jump=currentjump;
+                        end
+                        
+                        if(abs(jump)>pi/2-0.1)
+                            angleDataM(i,3)=angleDataM(i,3)-jump;
+                        end
+                   end
+
+                 tmp2(i)=angleDataM(i,3);
                 angleDataM(i,4:5) = angleData(i,4:5);   %Elbow flexion (0-160) and pronation (0-180)
             end
             figure();
-            subplot(2,1,1);hold on;
-            plot([tmp_p;tmp_e]');
-            subplot(2,1,2);hold on;
+            subplot(3,1,1);hold on;
+            subplot(3,1,2);hold on;
+            plot([tmp1;tmp2]');
+            subplot(3,1,3);hold on;
             plot([angleDataM(:,1) angleDataM(:,2) angleDataM(:,3)]);
             
             waitbar(1,h,'Resampling data...')
