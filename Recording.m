@@ -284,13 +284,15 @@ classdef Recording
                 SimplifiedTheta(i,1) = -e;
                 SimplifiedTheta(i,2) = angleData(i,4);
 
+                tmp1(i)=p;
                 angleDataM(i,1) = -e*cos(p); %Abduction/adduction (abduction external, -80 to 180)
                 angleDataM(i,2) = -e*sin(p); %Flexion/extension (flexion forward, extension backward, -80 to 180)
                 if(i>1 && abs(angleDataM(i,2)>0.1) && sign(angleDataM(i,2))~=sign(angleDataM(i-1,2)) )
                     angleDataM(i,2)=-angleDataM(i,2);
+                    p=-p;
                 end
                 angleDataM(i,3) = a + p;    %Axial rotation (internal -, external +, -90 to 90)
-                tmp1(i)=angleDataM(i,3);
+                %tmp1(i)=angleDataM(i,3);
                    if(i>1)
                         currentjump=(angleDataM(i,3)-angleDataM(i-1,3));
                         if(i==2)
@@ -305,14 +307,13 @@ classdef Recording
                         end
                    end
 
-                 tmp2(i)=angleDataM(i,3);
+                 tmp2(i)=p;%angleDataM(i,3);
                 angleDataM(i,4:5) = angleData(i,4:5);   %Elbow flexion (0-160) and pronation (0-180)
             end
             figure();
-            subplot(3,1,1);hold on;
-            subplot(3,1,2);hold on;
+            subplot(2,1,1);hold on;
             plot([tmp1;tmp2]');
-            subplot(3,1,3);hold on;
+            subplot(2,1,2);hold on;
             plot([angleDataM(:,1) angleDataM(:,2) angleDataM(:,3)]);
             
             waitbar(1,h,'Resampling data...')
@@ -682,7 +683,7 @@ classdef Recording
         function obj = createJointHist(obj)
             Theta=obj.Theta.*180/pi;
             JointsLimits=obj.JointsLimits;
-            HistNbBins=200;
+            HistNbBins=30;
             obj.HistNbBins=HistNbBins;
             MovIdx=obj.MovIdx;
             MovTheta=Theta(find(MovIdx==1), :);
@@ -691,7 +692,7 @@ classdef Recording
                 xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
                 GlobalIndivJointHist(i,:)=hist(Theta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
                 StaticIndivJointHist(i,:)=hist(StaticTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
-                MovIndivJointHist(i,:)=hist(MovTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
+                MovIndivJointHist(i,:)=whist(MovTheta(:, i), xbins, abs(obj.Theta_d(find(MovIdx==1),i)*180/pi/2))./length(Theta)*100; %Histogram and normalize
             end
             obj.GlobalIndivJointHist=GlobalIndivJointHist;
             obj.StaticIndivJointHist=StaticIndivJointHist;
@@ -1058,6 +1059,17 @@ classdef Recording
                 bar(xbins, [GlobalIndivJointHist(i,:)' StaticIndivJointHist(i,:)' MovIndivJointHist(i,:)']);
                 title(JointsNames{i});
             end
+            
+            figure();
+            for i=1:size(GlobalIndivJointHist, 1)
+                subplot(2,3,i);
+                xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
+                polar(xbins./180*pi, GlobalIndivJointHist(i,:), 'b');hold on
+                polar(xbins./180*pi, StaticIndivJointHist(i,:), 'g');
+                polar(xbins./180*pi, MovIndivJointHist(i,:), 'r');
+                title(obj.JointsNames{i});
+            end
+            legend({'Global' 'Static', 'Movement'});
         end
         
 

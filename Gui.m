@@ -112,6 +112,9 @@ function Load_Callback(hObject, eventdata, handles)
         handles.filename = filedat.filename;
         handles.path = filedat.path;
         handles.CurrentRecording = filedat.CurrentRecording;
+
+        %Recompute things
+        handles.CurrentRecording.calcEverything();
         
         %Update values in the GUI (nb movements, time)
         UpdateInfos(handles);
