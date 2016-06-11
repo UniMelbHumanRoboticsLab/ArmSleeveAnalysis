@@ -1,13 +1,14 @@
 clear all
 close all
 
+%A = Recording('Data/20160330_ArmSleeveProtocolTest1.h5', 60, 1480, 1, 'L');
+%A = Recording('Data/20160406-Subject1.h5', 25, 40, 1, 'R')
+A = Recording('Data/20160606-Subject2.h5', 40, 150, 1, 'R')
+%A = Recording('Data/20160606-Subject2.h5', 69, 90, 1, 'R')
 
-%R = Recording('Data/20160330_ArmSleeveProtocolTest1.h5', 60, 1480, 1, 'L');
-%R = Recording('Data/20160406-Subject1.h5', 25, 40, 1, 'R')
-L = Recording('Data/20160406-Subject1.h5', 25, 550, 1, 'L')
-
-L = L.calcEverything()
+A = A.calcEverything()
 
 %L.drawEverything()
-L.drawSimplifiedTheta(0);
-L.drawJointHists();
+A.drawTheta(0);
+A.drawSimplifiedTheta(0);
+A.drawJointHists();

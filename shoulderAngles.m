@@ -32,17 +32,25 @@ axial = zeros(datapoints,1);
 for i=1:datapoints
     % Calculate the orientation of an intermediate axis representing the
     % x-axis after the first rotation
-    interm_x = cross(y_s(i,:),y_o(i,:));
+    interm_x = cross(y_o(i,:),y_s(i,:));
     interm_x = interm_x/norm(interm_x);
     
     % Calculate the first Y1 rotation. If the x-component of the y-axis is
     % positive, the angle is negative, otherwise it is positive
     check = (T_o(:,:,i))\([y_s(i,:) 0]');
     if check(1)> 0
-       planeele(i) = -acos(dot(x_o(i,:),interm_x));
-    else
        planeele(i) = acos(dot(x_o(i,:),interm_x));
+    else
+       planeele(i) = -acos(dot(x_o(i,:),interm_x));
     end
+    
+    if(abs(dot(y_s(i,:),y_o(i,:)))>0.9)
+        planeele(i)=nan;
+    else
+        planeele(i)=planeele(i);
+    end
+    
+    
     % Angle is always negative 
     elevation(i) = -acos(dot(y_s(i,:),y_o(i,:)));
     % Axial rotation is the final rotation from the intermediate x-axis to
@@ -59,7 +67,7 @@ for i=1:datapoints
         axial(i)  = -axial(i);
     end
     
-%     if axial(i) > pi/2
-%         axial(i) = axial(i) -pi;
-%     end
+	if axial(i) > pi/2
+        axial(i) = axial(i) -pi;
+	end
 end

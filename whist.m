@@ -5,10 +5,12 @@
 %   -inf and the first center and the last bin includes data between the 
 %   last bin and inf. 
 %
-%   Class support for inputs Y, X: 
+%   Class support for inputs Y, X, W: 
 %      float: double, single
 %
 %   See also HIST, HISTC.
+%
+%   Vincent Crocher - The University of Melbourne - 2016
 
 function N = whist(Y, X, W)
 
@@ -28,11 +30,14 @@ function N = whist(Y, X, W)
     
     N=zeros(1,length(X));
     
+    %Count number of elements in each bin
     for i=1:length(Y)
        bin_idx=select_bin(Y(i));
        N(bin_idx)=N(bin_idx)+W(i);
     end
+
     
+    %Find corresponding bin for value v
     function idx=select_bin(v)
         %First bin starts at -inf
         if(v<edges(1))

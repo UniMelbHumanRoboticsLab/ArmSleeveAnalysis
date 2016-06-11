@@ -7,12 +7,14 @@ classdef Recording
         dt
     end
     properties (GetAccess=public)
+        TMP
+        
         %Constants
         JointsLimits=[[-80 180];[-80 180];[-90 90];[0 160];[0 180]];
         JointsNames={'Shoulder abduction', 'Shoulder flexion', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
         HistNbBins;
-        
-        
+
+
         %Recording parameters
         Arm
         DurationMin
@@ -208,13 +210,14 @@ classdef Recording
         %% Data Processing
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Calculate angles of the joints.
-        % TODO: Shoulder offsets
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         function obj = calcDoFAngles(obj)
             q=obj.q;
             angleData = zeros(length(obj.q), 5);
             angleDataM = zeros(length(obj.q), 5);
             XHand = zeros(length(obj.q), 3);
+            XShoulder = zeros(length(obj.q), 3);
+            XElbow = zeros(length(obj.q), 3);
             SimplifiedTheta = zeros(length(obj.q), 2);
             %segments lengths
             l_s=obj.L(1);
@@ -225,20 +228,6 @@ classdef Recording
             R = [1 0 0;
                  0 -1 0;
                  0 0 -1];
-
-            Ry = [1 0 0;
-                0 0 -1;
-                0 1 0];
-            
-            ssTs = [0 1 0 0;
-                0 0 1 0;
-                1 0 0 0;
-                0 0 0 1];
-            hsTh = [0 0 -1 0;
-                -1 0 0 0;
-                0 1 0 0 ;
-                0 0 0 1];
-
 
             % Calculate the angles and hand position
             h = waitbar(0, 'Calculating joint angles...');
@@ -254,7 +243,7 @@ classdef Recording
                 c_hs = quatrotate(q_h,eye(3))';
                 c_us = quatrotate(q_u,eye(3))';
 
-                c_s = [-c_ss(:,2) [-c_ss(1:2,3); c_ss(3,3)] [-c_ss(1:2,1); c_ss(3,1)] ];
+                c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
                 c_h = [-c_hs(:,3) -c_hs(:,1) c_hs(:,2)];
                 c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
 
@@ -277,68 +266,60 @@ classdef Recording
                 angleData(i,3) = a;
                 angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
                 angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));
-
-                PE(i,:) = [sin(-e)*sin(p), -cos(e), sin(-e)*cos(p)];
-                
-                
-                SimplifiedTheta(i,1) = -e;
-                SimplifiedTheta(i,2) = angleData(i,4);
-
-                tmp1(i)=p;
-                angleDataM(i,1) = -e*cos(p); %Abduction/adduction (abduction external, -80 to 180)
-                angleDataM(i,2) = -e*sin(p); %Flexion/extension (flexion forward, extension backward, -80 to 180)
-                if(i>1 && abs(angleDataM(i,2)>0.1) && sign(angleDataM(i,2))~=sign(angleDataM(i-1,2)) )
-                    angleDataM(i,2)=-angleDataM(i,2);
-                    p=-p;
-                end
-                angleDataM(i,3) = a + p;    %Axial rotation (internal -, external +, -90 to 90)
-                %tmp1(i)=angleDataM(i,3);
-                   if(i>1)
-                        currentjump=(angleDataM(i,3)-angleDataM(i-1,3));
-                        if(i==2)
-                            jump=currentjump;
-                        end
-                        if(abs(currentjump-jump)>pi/2-0.1)
-                            jump=currentjump;
-                        end
-                        
-                        if(abs(jump)>pi/2-0.1)
-                            angleDataM(i,3)=angleDataM(i,3)-jump;
-                        end
-                   end
-
-                 tmp2(i)=p;%angleDataM(i,3);
-                angleDataM(i,4:5) = angleData(i,4:5);   %Elbow flexion (0-160) and pronation (0-180)
             end
-            figure();
-            subplot(2,1,1);hold on;
-            plot([tmp1;tmp2]');
-            subplot(2,1,2);hold on;
-            plot([angleDataM(:,1) angleDataM(:,2) angleDataM(:,3)]);
             
             waitbar(1,h,'Resampling data...')
             
             % Normalise to start of file
             rawT = q(:,1)/1000 - q(1,1)/1000*ones(length(q),1);
             
-            % Resample the data
+            % Resample (and interpolate) the data:
             obj.t = [rawT(1):obj.dt:rawT(end)];
-            theta = spline(rawT,angleDataM',obj.t);
-            obj.Theta = theta';
+            
+            %Ensure that first and last values are not NaNs:
+            if(isnan(angleData(1,1)))
+                non_nans_idx=find(isfinite(angleData(:,1)));
+                angleData(1,1)=angleData(non_nans_idx(1),1);
+            end
+            if(isnan(angleData(end,1)))
+                non_nans_idx=find(isfinite(angleData(:,1)));
+                angleData(end,1)=angleData(non_nans_idx(end),1);
+            end
+            angleDataR = interp1(rawT,angleData,obj.t,'spline');
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
             XHand = spline(rawT,XHand',obj.t);
-            SimplifiedTheta = spline(rawT,SimplifiedTheta',obj.t);
+
+            
+            %Create actual joint angles (abduction, flexion etc... from ISB
+            %angles):
+            angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
+            angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
+            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1);    %Axial rotation (internal -, external +, -90 to 90)
+            angleDataM(:,4:5) = angleDataR(:,4:5);   %Elbow flexion (0-160) and pronation (0-180)
+
+            %and simplified angles:
+            SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
+            SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
+
+             figure();
+             subplot(2,1,1);hold on;
+             plot([angleData(:,1) angleData(:,2)]*180/pi);             
+             subplot(2,1,2);hold on;
+             plot(angleDataM(:,1)*180/pi, 'b');plot(angleDataM(:,2)*180/pi, 'g');
+
+            %Save to class members
+            obj.Theta = angleDataM;
             obj.XShoulder = XShoulder';
             obj.XElbow = XElbow';
             obj.XHand = XHand';
-            obj.SimplifiedTheta = SimplifiedTheta';
+            obj.SimplifiedTheta = SimplifiedTheta;
             obj.NbPts = length(obj.XHand);
-            
+
             close(h);
         end
 
-        
+
         function obj = calcDoFVelocities(obj)
             theta = obj.Theta;
             simplified_theta = obj.SimplifiedTheta;
@@ -358,17 +339,19 @@ classdef Recording
             obj.Theta_d = filter(b, a, theta_dot);
             
             % Calculate the angular velocities of simplified DoFs
-            simplified_theta_dot = zeros(length(t), 2);
-            dt = t(2)-t(1);
-            for i = 1:length(t)-1
-                simplified_theta_dot(i,:) = (simplified_theta(i+1,:)-simplified_theta(i,:))/dt;
+            if(~isempty(simplified_theta))
+                simplified_theta_dot = zeros(length(t), 2);
+                dt = t(2)-t(1);
+                for i = 1:length(t)-1
+                    simplified_theta_dot(i,:) = (simplified_theta(i+1,:)-simplified_theta(i,:))/dt;
+                end
+                simplified_theta_dot(length(t),:) = (simplified_theta(length(t),:)-simplified_theta(length(t)-1,:))/dt;
+                % And filter
+                [b,a] = butter(5, Fc/Fs);
+                obj.SimplifiedTheta_d = filter(b, a, simplified_theta_dot);
             end
-            simplified_theta_dot(length(t),:) = (simplified_theta(length(t),:)-simplified_theta(length(t)-1,:))/dt;
-            % And filter
-            [b,a] = butter(5, Fc/Fs);
-            obj.SimplifiedTheta_d = filter(b, a, simplified_theta_dot);
         end
-        
+
         %MATLAB can't find it for whatever reason...
         function s = createMovementStructure()
             %Per movement metrics and properties
@@ -689,10 +672,12 @@ classdef Recording
             MovTheta=Theta(find(MovIdx==1), :);
             StaticTheta=Theta(find(MovIdx==0), :);
             for i=1:size(Theta, 2)
-                xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
+                bin_size=(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins;
+                xbins=[JointsLimits(i,1):bin_size:JointsLimits(i,2)];
                 GlobalIndivJointHist(i,:)=hist(Theta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
                 StaticIndivJointHist(i,:)=hist(StaticTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
-                MovIndivJointHist(i,:)=whist(MovTheta(:, i), xbins, abs(obj.Theta_d(find(MovIdx==1),i)*180/pi/2))./length(Theta)*100; %Histogram and normalize
+                MovHistCoef = abs(obj.Theta_d(find(MovIdx==1),i))*180/pi/bin_size*obj.dt*10; %Correction coefficients for movement histogram: corrected by their velocity to not penalize fast samples (which are less 'likely')
+                MovIndivJointHist(i,:)=whist(MovTheta(:, i), xbins, MovHistCoef)./length(find(MovIdx==1))*100; %Weighted histogram and normalize
             end
             obj.GlobalIndivJointHist=GlobalIndivJointHist;
             obj.StaticIndivJointHist=StaticIndivJointHist;
@@ -763,36 +748,38 @@ classdef Recording
         end
         
         function h=drawSimplifiedTheta(obj, idx, varargin)
-            SimplifiedTheta=obj.SimplifiedTheta;
-            t=obj.t;
-            MovIdx=obj.MovIdx;
-            if(isempty(varargin))
-                h=figure();
-            else
-                axes(varargin{1});
-            end
-            hold on;
-            %Add movements area if any
-            if(~isempty(MovIdx))
-                yl=[min(min(SimplifiedTheta*180/pi)) max(max(SimplifiedTheta*180/pi))];
-                for i=1:length(t)
-                    if(MovIdx(i)==1)
-                        line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+            if(~isempty(obj.SimplifiedTheta))
+                SimplifiedTheta=obj.SimplifiedTheta;
+                t=obj.t;
+                MovIdx=obj.MovIdx;
+                if(isempty(varargin))
+                    h=figure();
+                else
+                    axes(varargin{1});
+                end
+                hold on;
+                %Add movements area if any
+                if(~isempty(MovIdx))
+                    yl=[min(min(SimplifiedTheta*180/pi)) max(max(SimplifiedTheta*180/pi))];
+                    for i=1:length(t)
+                        if(MovIdx(i)==1)
+                            line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+                        end
                     end
                 end
-            end
 
-            p(1)=plot(t, SimplifiedTheta(:,1)*180/pi, 'r');
-            p(2)=plot(t, SimplifiedTheta(:,2)*180/pi, 'g');
-            
-            title('Simplified joint angles');
-            legend(p, {'Shoulder';'Elbow'});
-            
-            %Add a red line idx if needed
-            if(idx>0)
-                yl=ylim;
-                %Line should be of different style than actual plots !
-                line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
+                p(1)=plot(t, SimplifiedTheta(:,1)*180/pi, 'r');
+                p(2)=plot(t, SimplifiedTheta(:,2)*180/pi, 'g');
+
+                title('Simplified joint angles');
+                legend(p, {'Shoulder';'Elbow'});
+
+                %Add a red line idx if needed
+                if(idx>0)
+                    yl=ylim;
+                    %Line should be of different style than actual plots !
+                    line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
+                end
             end
         end
         
@@ -1058,8 +1045,12 @@ classdef Recording
                 xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
                 bar(xbins, [GlobalIndivJointHist(i,:)' StaticIndivJointHist(i,:)' MovIndivJointHist(i,:)']);
                 title(JointsNames{i});
+                if(i==1)
+                    legend({'Global' 'Static', 'Movement'}, 'Location','NorthWest');
+                end
             end
             
+            %Polar (circular) histograms
             figure();
             for i=1:size(GlobalIndivJointHist, 1)
                 subplot(2,3,i);
@@ -1068,8 +1059,10 @@ classdef Recording
                 polar(xbins./180*pi, StaticIndivJointHist(i,:), 'g');
                 polar(xbins./180*pi, MovIndivJointHist(i,:), 'r');
                 title(obj.JointsNames{i});
+                if(i==1)
+                    legend({'Global' 'Static', 'Movement'}, 'Location','NorthWestOutside');
+                end
             end
-            legend({'Global' 'Static', 'Movement'});
         end
         
 

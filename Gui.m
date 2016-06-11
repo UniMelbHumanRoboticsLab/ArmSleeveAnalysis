@@ -22,10 +22,10 @@ function varargout = Gui(varargin)
 
 % Edit the above text to modify the response to help Gui
 
-% Last Modified by GUIDE v2.5 01-Jun-2016 19:40:31
+% Last Modified by GUIDE v2.5 06-Jun-2016 09:16:41
 
 % Begin initialization code - DO NOT EDIT
-gui_Singleton = 1;
+gui_Singleton = 0;
 gui_State = struct('gui_Name',       mfilename, ...
                    'gui_Singleton',  gui_Singleton, ...
                    'gui_OpeningFcn', @Gui_OpeningFcn, ...
@@ -130,6 +130,7 @@ function Load_Callback(hObject, eventdata, handles)
         set(handles.slider1, 'value', 1);
 
         %Create other graphs
+        handles.CurrentRecording.drawSimplifiedTheta(0);
         handles.CurrentRecording.drawGlobalHandMaps(0);
         handles.CurrentRecording.drawStaticHandMaps(0);
         handles.CurrentRecording.drawMovHandMaps(0);
