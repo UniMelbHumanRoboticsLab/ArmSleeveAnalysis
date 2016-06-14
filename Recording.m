@@ -258,8 +258,8 @@ classdef Recording
                 XElbow(i,:)=p_e;
                 XHand(i,:)=p_h;
 
-                % Calculate Joint Angles
-                [p, e, a] = shoulderAngles(T_s,T_h);
+                % Calculate Joint Angles (as per ISB definition)
+                [p, e, a] = shoulderAngles(T_s,T_h,obj.Arm);
 
                 angleData(i,1) = p;
                 angleData(i,2) = e;
@@ -276,7 +276,7 @@ classdef Recording
             % Resample (and interpolate) the data:
             obj.t = [rawT(1):obj.dt:rawT(end)];
             
-            %Ensure that first and last values are not NaNs:
+            % Ensure that first and last values are not NaNs:
             if(isnan(angleData(1,1)))
                 non_nans_idx=find(isfinite(angleData(:,1)));
                 angleData(1,1)=angleData(non_nans_idx(1),1);
@@ -302,11 +302,11 @@ classdef Recording
             SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
             SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
 
-             figure();
-             subplot(2,1,1);hold on;
-             plot([angleData(:,1) angleData(:,2)]*180/pi);             
-             subplot(2,1,2);hold on;
-             plot(angleDataM(:,1)*180/pi, 'b');plot(angleDataM(:,2)*180/pi, 'g');
+%              figure();
+%              subplot(2,1,1);hold on;
+%              plot([angleData(:,1) angleData(:,2) angleData(:,3)]*180/pi);             
+%              subplot(2,1,2);hold on;
+%              plot(angleDataM(:,3)*180/pi, 'b');
 
             %Save to class members
             obj.Theta = angleDataM;
@@ -709,6 +709,7 @@ classdef Recording
             drawStaticHandMaps(obj, 0);
             drawMovHandMaps(obj, 0);
             drawJointHists(obj);
+            drawCircularJointHists(obj);
         end
         
         function h=drawTheta(obj, idx, varargin)
@@ -875,11 +876,17 @@ classdef Recording
            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
            
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-
+            if(obj.Arm=='R')
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+            else
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+            end
             
            h=figure();
            colormap(hot);
@@ -926,10 +933,17 @@ classdef Recording
            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
            
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+          if(obj.Arm=='R')
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           else
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           end
             
            h=figure();
            colormap(hot);
@@ -1049,9 +1063,22 @@ classdef Recording
                     legend({'Global' 'Static', 'Movement'}, 'Location','NorthWest');
                 end
             end
+        end
+        
+        function h=drawCircularJointHists(obj, varargin)
+            GlobalIndivJointHist=obj.GlobalIndivJointHist;
+            StaticIndivJointHist=obj.StaticIndivJointHist;
+            MovIndivJointHist=obj.MovIndivJointHist;
+            JointsLimits=obj.JointsLimits;
+            JointsNames=obj.JointsNames;
+            HistNbBins=obj.HistNbBins;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
             
             %Polar (circular) histograms
-            figure();
             for i=1:size(GlobalIndivJointHist, 1)
                 subplot(2,3,i);
                 xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
@@ -1064,7 +1091,6 @@ classdef Recording
                 end
             end
         end
-        
 
 
         %% Export methods (to csv files)

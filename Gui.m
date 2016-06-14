@@ -131,14 +131,14 @@ function Load_Callback(hObject, eventdata, handles)
 
         %Create other graphs
         handles.CurrentRecording.drawSimplifiedTheta(0);
-        handles.CurrentRecording.drawGlobalHandMaps(0);
+        handles.CurrentRecording.drawSimplifiedTheta_d();
         handles.CurrentRecording.drawStaticHandMaps(0);
         handles.CurrentRecording.drawMovHandMaps(0);
-        handles.CurrentRecording.drawJointHists();
+        handles.CurrentRecording.drawCircularJointHists();
         
         guidata(hObject, handles);
 
-        %And activate/deactivate stuff
+        %Activate/deactivate stuff
         set(handles.Open,'enable','on');
         set(handles.Process,'enable','on');
         set(handles.PlayPause,'enable','off');
@@ -197,10 +197,11 @@ function Process_Callback(hObject, eventdata, handles)
     set(handles.slider1, 'value', 1);
     
     %Create other graphs
-    handles.CurrentRecording.drawGlobalHandMaps(0);
+    handles.CurrentRecording.drawSimplifiedTheta(0);
+    handles.CurrentRecording.drawSimplifiedTheta_d();
     handles.CurrentRecording.drawStaticHandMaps(0);
     handles.CurrentRecording.drawMovHandMaps(0);
-    handles.CurrentRecording.drawJointHists();
+    handles.CurrentRecording.drawCircularJointHists();
     
     guidata(hObject, handles);
     
