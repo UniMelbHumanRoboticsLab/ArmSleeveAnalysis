@@ -63,7 +63,6 @@ for i=1:datapoints
     % Angle is always negative 
     elevation(i) = -acos(dot(y_s(i,:),y_o(i,:)));
 
-
     % Axial rotation is the final rotation from the intermediate x-axis to
     % the final x-axis
  %   axial(i) = acos(dot(x_s(i,:),interm_x));

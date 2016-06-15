@@ -17,6 +17,7 @@ classdef Recording
 
         %Recording parameters
         Arm
+        UsingChestSensor %True if chest sensor is used as reference instead of shoulder ones
         DurationMin
         DurationSec
         NbPts
@@ -61,11 +62,19 @@ classdef Recording
     methods
         %% Constructors
         
-        function R = Recording(filename, StartTime, EndTime, fs, arm)
+        function R = Recording(filename, StartTime, EndTime, fs, arm, varargin)
             
            % Save Filename into object
            R.Filename = filename;
            R.Arm=arm;
+           
+           %If specified force to use chest sensor for joint computation 
+           %even if shoulder sensors are available
+           if(isempty(varargin))
+               ForceChestSensor=false;
+           else
+               ForceChestSensor=varargin{1};
+           end
            
            %Test filename extension: if h5 assume Opal
            %If csv assume custom
@@ -74,13 +83,16 @@ classdef Recording
                case '.h5'
                    disp(['Opal sensors file: ' R.Filename]);
                    %Check number of sensors in the recording
-                   hinfo = hdf5info(Filename);
+                   hinfo = hdf5info(R.Filename);
                    nb_sensors=length(hinfo.GroupHierarchy.Groups);
                    if(nb_sensors<6 || ForceChestSensor)
-                       R = RecordingH5ChestSensor(R, StartTime, EndTime);
+                       disp('Using CHEST sensor');
+                       R.UsingChestSensor=true;
                    else
-                       R = RecordingH5(R, StartTime, EndTime); 
+                       disp('Using SHOULDER sensors');
+                       R.UsingChestSensor=false;
                    end
+                   R = RecordingH5(R, StartTime, EndTime); 
                
                case '.csv'
                    disp(['Own sensors file: ' R.Filename]);
@@ -142,8 +154,10 @@ classdef Recording
                 R_Shoulder=4;
                 R_Elbow=5;
                 R_Wrist=6;
+                Chest=7;
 
                 %Opal sensors IDs
+                SensorsIds(Chest, :)='SI-002545';
                 SensorsIds(L_Shoulder, :)='SI-002500';
                 SensorsIds(L_Elbow, :)='SI-002532';
                 SensorsIds(L_Wrist, :)='SI-002575';
@@ -152,6 +166,7 @@ classdef Recording
                 SensorsIds(R_Wrist, :)='SI-002561';
 
                 %Corresponding labels
+                SensorsLabels{Chest}='Chest';
                 SensorsLabels{L_Shoulder}='L Shoulder';
                 SensorsLabels{L_Elbow}='L_Elbow';
                 SensorsLabels{L_Wrist}='L_Wrist';
@@ -160,7 +175,11 @@ classdef Recording
                 SensorsLabels{R_Wrist}='R_Wrist';
             
                 if(R.Arm=='R')
-                    sdata = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Calibrated/Orientation'])';
+                    if(R.UsingChestSensor)
+                       sdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
+                    else
+                       sdata = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Calibrated/Orientation'])'; 
+                    end
                     edata = h5read(R.Filename,['/' SensorsIds(R_Elbow, :) '/Calibrated/Orientation'])';
                     wdata = h5read(R.Filename,['/' SensorsIds(R_Wrist, :) '/Calibrated/Orientation'])';
                     stime = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Time']);
@@ -169,7 +188,11 @@ classdef Recording
                 end
 
                 if(R.Arm=='L')
-                    sdata = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Calibrated/Orientation'])';
+                    if(R.UsingChestSensor)
+                       sdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
+                    else
+                       sdata = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Calibrated/Orientation'])'; 
+                    end
                     edata = h5read(R.Filename,['/' SensorsIds(L_Elbow, :) '/Calibrated/Orientation'])';
                     wdata = h5read(R.Filename,['/' SensorsIds(L_Wrist, :) '/Calibrated/Orientation'])';
                     stime = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Time']);
@@ -211,94 +234,11 @@ classdef Recording
             R = calcDoFAngles(R);
         end
 
-        
-        % Filename, StartTime, Endtime, Sampling Frequency (nominal)
-        %for Opal h5 files with a chest sensor (instead of shoulder ones)
-        function R = RecordingH5ChestSensor(R, StartTime, EndTime)
-            
-            % Arm segments lengths
-            R.L=[0.2 0.4 0.4]; %neck-shoulder, upper-arm, lower-arm
-            
-            % Load the data
-                %Convenience sensor index variables
-                Chest=1;
-                L_Elbow=2;
-                L_Wrist=3;
-                R_Elbow=4;
-                R_Wrist=5;
-
-                %Opal sensors IDs
-                SensorsIds(Chest, :)='SI-002500';
-                SensorsIds(L_Elbow, :)='SI-002532';
-                SensorsIds(L_Wrist, :)='SI-002575';
-                SensorsIds(R_Elbow, :)='SI-002555';
-                SensorsIds(R_Wrist, :)='SI-002561';
-
-                %Corresponding labels
-                SensorsLabels{Chest}='Chest';
-                SensorsLabels{L_Elbow}='L_Elbow';
-                SensorsLabels{L_Wrist}='L_Wrist';
-                SensorsLabels{R_Elbow}='R_Elbow';
-                SensorsLabels{R_Wrist}='R_Wrist';
-            
-                if(R.Arm=='R')
-                    cdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
-                    edata = h5read(R.Filename,['/' SensorsIds(R_Elbow, :) '/Calibrated/Orientation'])';
-                    wdata = h5read(R.Filename,['/' SensorsIds(R_Wrist, :) '/Calibrated/Orientation'])';
-                    ctime = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Time']);
-                    etime = h5read(R.Filename,['/' SensorsIds(R_Elbow, :) '/Time']);
-                    wtime = h5read(R.Filename,['/' SensorsIds(R_Wrist, :) '/Time']);
-                end
-
-                if(R.Arm=='L')
-                    cdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
-                    edata = h5read(R.Filename,['/' SensorsIds(L_Elbow, :) '/Calibrated/Orientation'])';
-                    wdata = h5read(R.Filename,['/' SensorsIds(L_Wrist, :) '/Calibrated/Orientation'])';
-                    ctime = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Time']);
-                    etime = h5read(R.Filename,['/' SensorsIds(L_Elbow, :) '/Time']);
-                    wtime = h5read(R.Filename,['/' SensorsIds(L_Wrist, :) '/Time']);
-                end
-                
-                RecordingStartTime = max([stime(1) etime(1) wtime(1)]);
-                RecordingEndTime = min([stime(length(stime)) etime(length(etime)) wtime(length(wtime))]);
-                RecordingStartTimeIndex = [find(stime==RecordingStartTime), find(etime==RecordingStartTime), find(wtime==RecordingStartTime)];
-                RecordingEndTimeIndex = [find(stime==RecordingEndTime), find(etime==RecordingEndTime), find(wtime==RecordingEndTime)];
-
-                cdata = cdata(RecordingStartTimeIndex(1):RecordingEndTimeIndex(1),:);
-                edata = edata(RecordingStartTimeIndex(2):RecordingEndTimeIndex(2),:);
-                wdata = wdata(RecordingStartTimeIndex(3):RecordingEndTimeIndex(3),:);
-
-                time = stime(RecordingStartTimeIndex(1):RecordingEndTimeIndex(1),:);
-                time = (double(time) - double(time(1))*ones(size(time)))/1e6;
-                
-                %Build data vector: [time q_u q_h q_c]
-                data=[time.*1000 wdata edata cdata];
-             
-            % Take only data of interest
-            [~, StartIndex] = min(abs(time-StartTime)); %Find closest time to start time
-            [~, EndIndex] = min(abs(time-EndTime)); %Find closest time to end time
-            tsec=time(EndIndex)-time(StartIndex);
-            R.DurationMin=floor((time(EndIndex)-time(StartIndex))/60);
-            R.DurationSec=round(tsec-R.DurationMin*60);
-            disp(['Actual sequence length: ' num2str(R.DurationMin) 'min ' num2str(R.DurationSec) 's']);
-            data = data(StartIndex:EndIndex,:);
-            
-            % Save the raw quaternion data
-            R.q = data;
-            
-            % Calculate an appropriate nominal dt
-            R.dt = mean(time(2:end)-time(1:end-1));
-            
-            % Calculate the DoF angles
-            R = calcDoFAnglesChestSensor(R);
-        end
-
 
 
         %% Data Processing
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Calculate angles of the joints with reference sensor on the
-        % shoulder
+        % Calculate angles of the joints 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         function obj = calcDoFAngles(obj)
             q=obj.q;
@@ -332,126 +272,19 @@ classdef Recording
                 c_hs = quatrotate(q_h,eye(3))';
                 c_us = quatrotate(q_u,eye(3))';
 
-                c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
-                c_h = [-c_hs(:,3) -c_hs(:,1) c_hs(:,2)];
-                c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
-
-                T_s = [c_s [0 0 0]'; 0 0 0 1];
-                T_h = [c_h [0 0 0]'; 0 0 0 1];
-                T_u = [c_u [0 0 0]'; 0 0 0 1];
                 
-                p_s = c_s(:,3)*l_s;
-                p_e =  p_s - c_h(:,2)*l_h;
-                p_h = p_e - c_u(:,2)*l_u;
-                XShoulder(i,:)=p_s;
-                XElbow(i,:)=p_e;
-                XHand(i,:)=p_h;
-
-                % Calculate Joint Angles (as per ISB definition)
-                [p, e, a] = shoulderAngles(T_s,T_h,obj.Arm);
-
-                angleData(i,1) = p;
-                angleData(i,2) = e;
-                angleData(i,3) = a;
-                angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
-                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));
-            end
-            
-            waitbar(1,h,'Resampling data...')
-            
-            % Normalise to start of file
-            rawT = q(:,1)/1000 - q(1,1)/1000*ones(length(q),1);
-            
-            % Resample (and interpolate) the data:
-            obj.t = [rawT(1):obj.dt:rawT(end)];
-            
-            % Ensure that first and last values are not NaNs:
-            if(isnan(angleData(1,1)))
-                non_nans_idx=find(isfinite(angleData(:,1)));
-                angleData(1,1)=angleData(non_nans_idx(1),1);
-            end
-            if(isnan(angleData(end,1)))
-                non_nans_idx=find(isfinite(angleData(:,1)));
-                angleData(end,1)=angleData(non_nans_idx(end),1);
-            end
-            angleDataR = interp1(rawT,angleData,obj.t,'spline');
-            XShoulder = spline(rawT,XShoulder',obj.t);
-            XElbow = spline(rawT,XElbow',obj.t);
-            XHand = spline(rawT,XHand',obj.t);
-
-            
-            %Create actual joint angles (abduction, flexion etc... from ISB
-            %angles):
-            angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
-            angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
-            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1);    %Axial rotation (internal -, external +, -90 to 90)
-            angleDataM(:,4:5) = angleDataR(:,4:5);   %Elbow flexion (0-160) and pronation (0-180)
-
-            %and simplified angles:
-            SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
-            SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
-
-%              figure();
-%              subplot(2,1,1);hold on;
-%              plot([angleData(:,1) angleData(:,2) angleData(:,3)]*180/pi);             
-%              subplot(2,1,2);hold on;
-%              plot(angleDataM(:,3)*180/pi, 'b');
-
-            %Save to class members
-            obj.Theta = angleDataM;
-            obj.XShoulder = XShoulder';
-            obj.XElbow = XElbow';
-            obj.XHand = XHand';
-            obj.SimplifiedTheta = SimplifiedTheta;
-            obj.NbPts = length(obj.XHand);
-
-            close(h);
-        end
-
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Calculate angles of the joints with reference sensor on the
-        % chest
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        function obj = calcDoFAnglesChestSensor(obj)
-            q=obj.q;
-            angleData = zeros(length(obj.q), 5);
-            angleDataM = zeros(length(obj.q), 5);
-            XHand = zeros(length(obj.q), 3);
-            XShoulder = zeros(length(obj.q), 3);
-            XElbow = zeros(length(obj.q), 3);
-            SimplifiedTheta = zeros(length(obj.q), 2);
-            %segments lengths
-            l_s=obj.L(1);
-            l_h=obj.L(2);
-            l_u=obj.L(3);
-            
-            % Rotation 180 degrees about x
-            R = [1 0 0;
-                 0 -1 0;
-                 0 0 -1];
-
-            % Calculate the angles and hand position
-            h = waitbar(0, 'Calculating joint angles...');
-            
-            for i = 1:length(q)
-                waitbar(i/length(q));
-                q_h = quatinv(q(i,6:9)/quatnorm(q(i,6:9)));
-                q_u = quatinv(q(i,2:5)/quatnorm(q(i,2:5)));
-                q_s = quatinv(q(i,10:13)/quatnorm(q(i,10:13)));
-
-                % Creates frames for shoulder, humerus and ulna sensors
-                c_ss = quatrotate(q_s,eye(3))';
-                c_hs = quatrotate(q_h,eye(3))';
-                c_us = quatrotate(q_u,eye(3))';
-
-
-                % Use chest sensor as shoulder one, only nominal orientation change
-                % but left and right arm have now different orientation since
-                % based on a unique sensor
-                if(obj.Arm=='R')
-                    c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
+                %Create ISB frames
+                if(obj.UsingChestSensor)
+                    % Use chest sensor as reference one (only sensor
+                    % orientation change)
+                    c_s = [c_ss(:,3) -c_ss(:,1) -c_ss(:,2)];
                 else
-                    c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
+                    % Use shoulder sensor as reference
+                    if(obj.Arm=='R')
+                        c_s = [c_ss(:,2) c_ss(:,3) -c_ss(:,1)];
+                    else
+                        c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
+                    end
                 end
                 c_h = [-c_hs(:,3) -c_hs(:,1) c_hs(:,2)];
                 c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
@@ -459,7 +292,8 @@ classdef Recording
                 T_s = [c_s [0 0 0]'; 0 0 0 1];
                 T_h = [c_h [0 0 0]'; 0 0 0 1];
                 T_u = [c_u [0 0 0]'; 0 0 0 1];
-                
+
+                %Compute joint positions
                 p_s = c_s(:,3)*l_s;
                 p_e =  p_s - c_h(:,2)*l_h;
                 p_h = p_e - c_u(:,2)*l_u;
@@ -474,7 +308,7 @@ classdef Recording
                 angleData(i,2) = e;
                 angleData(i,3) = a;
                 angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
-                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));
+                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3))); %WRONG ?????????
             end
             
             waitbar(1,h,'Resampling data...')
@@ -953,7 +787,7 @@ classdef Recording
                 line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
             end
             title('Joint angles');
-            legend(p, ['q1';'q2';'q3';'q4';'q5']);
+            legend(p, obj.JointsNames);
         end
         
         function h=drawSimplifiedTheta(obj, idx, varargin)
@@ -1007,7 +841,7 @@ classdef Recording
             plot(t, Theta_d(:,4)*180/pi, 'y');
             plot(t, Theta_d(:,5)*180/pi, 'm');
             title('Joint velocities');
-            legend(['dq1';'dq2';'dq3';'dq4';'dq5']);
+            legend(obj.JointsNames);
         end
         
         function h=drawSimplifiedTheta_d(obj, varargin)
