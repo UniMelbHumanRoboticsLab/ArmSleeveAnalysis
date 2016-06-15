@@ -71,7 +71,6 @@ for i=1:datapoints
     x_off = x_temp*interm_x;
     x_temp2 = (x_s(i,:) - x_off);
 
-
     axial(i) = atan2(norm(x_temp2) ,x_temp);
 
     if(dot(cross(interm_x,x_s(i,:)),y_s) < 0)
