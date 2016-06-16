@@ -262,7 +262,9 @@ classdef Recording
             h = waitbar(0, 'Calculating joint angles...');
             
             for i = 1:length(q)
-                waitbar(i/length(q));
+                if(mod(i,50)==1)
+                    waitbar(i/length(q));
+                end
                 q_h = quatinv(q(i,6:9)/quatnorm(q(i,6:9)));
                 q_u = quatinv(q(i,2:5)/quatnorm(q(i,2:5)));
                 q_s = quatinv(q(i,10:13)/quatnorm(q(i,10:13)));
