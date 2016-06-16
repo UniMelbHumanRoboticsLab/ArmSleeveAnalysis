@@ -289,10 +289,6 @@ classdef Recording
                 c_h = [-c_hs(:,3) -c_hs(:,1) c_hs(:,2)];
                 c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
 
-                T_s = [c_s [0 0 0]'; 0 0 0 1];
-                T_h = [c_h [0 0 0]'; 0 0 0 1];
-                T_u = [c_u [0 0 0]'; 0 0 0 1];
-
                 %Compute joint positions
                 p_s = c_s(:,3)*l_s;
                 p_e =  p_s - c_h(:,2)*l_h;
@@ -302,13 +298,13 @@ classdef Recording
                 XHand(i,:)=p_h;
 
                 % Calculate Joint Angles (as per ISB definition)
-                [p, e, a] = shoulderAngles(T_s,T_h,obj.Arm);
+                [p, e, a] = shoulderAngles(c_s,c_h,obj.Arm);
 
                 angleData(i,1) = p;
                 angleData(i,2) = e;
-                angleData(i,3) = a;
-                angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
-                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3))); %WRONG ?????????
+                angleData(i,3) = a; %WRONG ???
+                angleData(i,4) = acos(dot(c_h(1:3,2),c_u(1:3,2)));
+                angleData(i,5) = acos(dot(c_h(1:3,3),c_u(1:3,3))); %WRONG ?????????
             end
             
             waitbar(1,h,'Resampling data...')

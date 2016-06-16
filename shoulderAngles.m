@@ -18,12 +18,12 @@
 % 14/06/2016 - Take arm side as parameter and change angles computation
 % accordingly
 
-function [planeele, elevation, axial] = shoulderAngles(T_o,T_s,side)
+function [planeele, elevation, axial] = shoulderAngles(c_o,c_s,side)
 % Take the directions of the x and y axes from the transformation matrices
-x_o = squeeze(T_o(1:3,1,:))';
-y_o = squeeze(T_o(1:3,2,:))';
-x_s = squeeze(T_s(1:3,1,:))';
-y_s = squeeze(T_s(1:3,2,:))';
+x_o = squeeze(c_o(1:3,1,:))';
+y_o = squeeze(c_o(1:3,2,:))';
+x_s = squeeze(c_s(1:3,1,:))';
+y_s = squeeze(c_s(1:3,2,:))';
 
 % Calculate the number of datapoints and initiate the returned variables
 datapoints = length(y_o(:,1));
@@ -44,7 +44,7 @@ for i=1:datapoints
     
     % Calculate the first Y1 rotation. If the x-component of the y-axis is
     % positive, the angle is negative, otherwise it is positive
-    check = (T_o(:,:,i))\([y_s(i,:) 0]');
+    check = (c_o(:,:,i))\(y_s(i,:)');
     if check(1)> 0
        planeele(i) = acos(dot(x_o(i,:),interm_x));
     else
