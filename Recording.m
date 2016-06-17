@@ -7,12 +7,20 @@ classdef Recording
         dt
     end
     properties (GetAccess=public)
-        TMP
-        
         %Constants
         JointsLimits=[[-80 180];[-80 180];[-90 90];[0 160];[0 180]];
         JointsNames={'Shoulder abduction', 'Shoulder flexion', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
         HistNbBins;
+        
+        %Movement detection parameters: see setMovThresholds
+            %For individual joints
+        velThres = [];
+        timeThresOn = [];
+        timeThresOff = [];
+            %For the sum of all joints
+        velThresAll = [];
+        timeThresOnAll = [];
+        timeThresOffAll = [];
 
 
         %Recording parameters
@@ -42,6 +50,14 @@ classdef Recording
         NbMov
         MovTime
         MovTimePerJoint
+        SimplifiedMovIdx
+        SimplifiedMovIdxSynchro
+        SimplifiedMovIdxIndep
+        SimplifiedMovIdxEither
+        SimplifiedMovTime
+        SimplifiedMovTimeSynchro
+        SimplifiedMovTimeIndep
+        SimplifiedMovTimeEither
         
         %Maps
         StaticHandMap
@@ -262,12 +278,12 @@ classdef Recording
             h = waitbar(0, 'Calculating joint angles...');
             
             for i = 1:length(q)
-                if(mod(i,50)==1)
+                if(mod(i,100)==1)
                     waitbar(i/length(q));
                 end
-                q_h = quatinv(q(i,6:9)/quatnorm(q(i,6:9)));
-                q_u = quatinv(q(i,2:5)/quatnorm(q(i,2:5)));
-                q_s = quatinv(q(i,10:13)/quatnorm(q(i,10:13)));
+                q_h = quatinv(q(i,6:9));%No need to normalize, quatrotate does it anyway%/quatnorm(q(i,6:9)));
+                q_u = quatinv(q(i,2:5));%/quatnorm(q(i,2:5)));
+                q_s = quatinv(q(i,10:13));%/quatnorm(q(i,10:13)));
 
                 % Creates frames for shoulder, humerus and ulna sensors
                 c_ss = quatrotate(q_s,eye(3))';
@@ -327,6 +343,7 @@ classdef Recording
                 angleData(end,1)=angleData(non_nans_idx(end),1);
             end
             angleDataR = interp1(rawT,angleData,obj.t,'spline');
+
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
             XHand = spline(rawT,XHand',obj.t);
@@ -336,7 +353,7 @@ classdef Recording
             %angles):
             angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
             angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
-            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1);    %Axial rotation (internal -, external +, -90 to 90)
+            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1); %Axial rotation (internal -, external +, -90 to 90)
             angleDataM(:,4:5) = angleDataR(:,4:5);   %Elbow flexion (0-160) and pronation (0-180)
 
             %and simplified angles:
@@ -345,7 +362,7 @@ classdef Recording
 
 %              figure();
 %              subplot(2,1,1);hold on;
-%              plot([angleData(:,1) angleData(:,2) angleData(:,3)]*180/pi);             
+%              plot([angleData(:,3)]*180/pi);             
 %              subplot(2,1,2);hold on;
 %              plot(angleDataM(:,3)*180/pi, 'b');
 
@@ -360,6 +377,24 @@ classdef Recording
             close(h);
         end
 
+
+        
+
+        %% Global Metrics
+        function obj = calcEverything(obj)
+            obj=calcDoFVelocities(obj);
+            obj=calcMove(obj);
+            obj=calcMoveSimplified(obj);
+            obj=calcCumDoF(obj);
+            obj=calcROM(obj);
+            obj=calcNumMov(obj);
+            obj=calcMovTime(obj);
+            obj=createHandMaps(obj);
+            obj=createJointMaps(obj);
+            obj=createJointHist(obj);
+        end
+        
+        
         function obj = calcDoFVelocities(obj)
             theta = obj.Theta;
             simplified_theta = obj.SimplifiedTheta;
@@ -403,22 +438,34 @@ classdef Recording
             'StopTime', -1,....
             'DoFPart',[]);
         end
-        
+      
+        %Define the movement velocity and time thresholds used for
+        %movements detection. Called by calcMov and calcSimplifiedMov
+        function obj = setMovThresholds(obj)
+           % Parameters
+            % For each Joint
+            obj.velThres = 40;
+            obj.timeThresOn = 0.2;
+            obj.timeThresOff = 0.2;
+            
+            % For the sum of all joints
+            obj.velThresAll = 60;
+            obj.timeThresOnAll = 0.2;
+            obj.timeThresOffAll = 0.2; 
+        end
         
         function obj = calcMove(obj)
             theta_dot = obj.Theta_d;
             f = 1/obj.dt;
             
-            % Parameters
-            % For each Joint
-            velThres = 40;
-            timeThresOn = 0.2;
-            timeThresOff = 0.1;
-            
-            % For the sum of all joints
-            velThresAll = 60;
-            timeThresOnAll = 0.2;
-            timeThresOffAll = 0.2;
+            %Define parameters values
+            obj=obj.setMovThresholds();
+            velThres=obj.velThres;
+            timeThresOn=obj.timeThresOn;
+            timeThresOff=obj.timeThresOff;
+            velThresAll=obj.velThresAll;
+            timeThresOnAll=obj.timeThresOnAll;
+            timeThresOffAll=obj.timeThresOffAll;
 
             % Calculate whether a movement is currently being made
             % Index to determine whether each DoF is moving
@@ -556,28 +603,42 @@ classdef Recording
             obj.MovIdx = DoFMove(:,1)|DoFMove(:,2)|DoFMove(:,3)|DoFMove(:,4);
             obj.Movements = Movements;
         end
-                
-         
-        %Done in calcDoFAngles for speed
-%         function obj = calcHandPos(obj)
-%             % Calcualte the Hand Positions
-%             % VINCENT - TODO
-%             theta = obj.Theta;
-%             L = obj.L;
-%         end
         
+        function obj = calcMoveSimplified(obj)
+            theta_dot = obj.SimplifiedTheta_d;
+            f = 1/obj.dt;
+            
+            %Define parameters values
+            obj=obj.setMovThresholds();
 
-        %% Global Metrics
-        function obj = calcEverything(obj)
-            obj=calcDoFVelocities(obj);
-            obj=calcMove(obj);
-            obj=calcCumDoF(obj);
-            obj=calcROM(obj);
-            obj=calcNumMov(obj);
-            obj=calcMovTime(obj);
-            obj=createHandMaps(obj);
-            obj=createJointMaps(obj);
-            obj=createJointHist(obj);
+            % Calculate whether a movement is currently being made
+            % Index to determine whether each simplified DoF is moving
+            obj.SimplifiedMovIdx = zeros(length(theta_dot), 2);
+            
+            %Simply detect by velocity threshold
+            obj.SimplifiedMovIdx(find(abs(theta_dot)>(obj.velThres/180*pi)))=1; %Each joint (shoulder, elbow) individually
+            obj.SimplifiedMovIdxSynchro=obj.SimplifiedMovIdx(:,1)&obj.SimplifiedMovIdx(:,2); %Both joint moving together
+            obj.SimplifiedMovIdxIndep=xor(obj.SimplifiedMovIdx(:,1), obj.SimplifiedMovIdx(:,2)); %Only one moving at a time
+            obj.SimplifiedMovIdxEither=obj.SimplifiedMovIdx(:,1)|obj.SimplifiedMovIdx(:,2); %Any joint moving
+        end
+        
+        function obj = calcMovTime(obj)
+            %TODO: improve with actual dt for each
+            dt=obj.dt;
+            MovIdx=obj.MovIdx;
+            MovIdxPerJoint=obj.MovIdxPerJoint;
+            
+            %Global
+            obj.MovTime=sum(MovIdx)*dt;
+            
+            %PerJoint
+            obj.MovTimePerJoint=sum(MovIdxPerJoint).*dt;
+            
+            %For simplified joint angles and synchronization
+            obj.SimplifiedMovTime=sum(obj.SimplifiedMovIdx).*dt; %Each joint: shoulder, elbow indovidually
+            obj.SimplifiedMovTimeSynchro=sum(obj.SimplifiedMovIdxSynchro).*dt; %Both joints at the same time
+            obj.SimplifiedMovTimeIndep=sum(obj.SimplifiedMovIdxIndep).*dt; %Both joints at the same time
+            obj.SimplifiedMovTimeEither=sum(obj.SimplifiedMovIdxEither).*dt; %Any joint moving
         end
         
         
@@ -613,20 +674,6 @@ classdef Recording
         function obj = calcNumMov(obj)
             obj.NbMov = length(obj.Movements);
         end
-
-        function obj = calcMovTime(obj)
-            %TODO: improve with actual dt for each
-            dt=obj.dt;
-            MovIdx=obj.MovIdx;
-            MovIdxPerJoint=obj.MovIdxPerJoint;
-            
-            %Global
-            obj.MovTime=sum(MovIdx)*dt;
-            
-            %PerJoint
-            obj.MovTimePerJoint=sum(MovIdxPerJoint).*dt;
-        end
-
 
         
         function [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj)%RESOLUTION as a parameter ?
@@ -750,6 +797,7 @@ classdef Recording
             drawMovHandMaps(obj, 0);
             drawJointHists(obj);
             drawCircularJointHists(obj);
+            drawSimplifiedMov(obj);
         end
         
         function h=drawTheta(obj, idx, varargin)
@@ -1132,6 +1180,32 @@ classdef Recording
             end
         end
 
+        function h=drawSimplifiedMov(obj, varargin)
+            SimplifiedMovIdx=obj.SimplifiedMovIdx;
+            SimplifiedMovIdxIndep=obj.SimplifiedMovIdxIndep;
+            SimplifiedMovIdxSynchro=obj.SimplifiedMovIdxSynchro;
+            SimplifiedMovTime=obj.SimplifiedMovTime;
+            SimplifiedMovTimeEither=obj.SimplifiedMovTimeEither;
+            SimplifiedMovTimeIndep=obj.SimplifiedMovTimeIndep;
+            SimplifiedMovTimeSynchro=obj.SimplifiedMovTimeSynchro;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            hold on;
+            plot(t, SimplifiedMovIdx);
+            plot(t, SimplifiedMovIdxSynchro, 'r');
+            %plot(t, A.SimplifiedMovIdxIndep, 'y');
+            ylim([0 1.5]);
+            title('Simplified joint movements');
+            legend({'Shoulder movement', 'Elbow movement', 'Symchronized movement'});
+            %Display percentage values
+            percent_moving=SimplifiedMovTimeEither./t(end)*100;
+            percent_synchro=SimplifiedMovTimeSynchro/SimplifiedMovTimeEither*100;
+            text(5,1.2,{['Moving ' num2str(round(percent_moving)) '% of time']; ['with ' num2str(round(percent_synchro)) '% synchronized.']});
+        end
 
         %% Export methods (to csv files)
         

@@ -112,6 +112,9 @@ function Load_Callback(hObject, eventdata, handles)
         handles.filename = filedat.filename;
         handles.path = filedat.path;
         handles.CurrentRecording = filedat.CurrentRecording;
+        
+        %Update values in the GUI (nb movements, time)
+        UpdateInfos(handles);
 
         %Recompute things
         handles.CurrentRecording.calcEverything();
@@ -135,6 +138,7 @@ function Load_Callback(hObject, eventdata, handles)
         handles.CurrentRecording.drawStaticHandMaps(0);
         handles.CurrentRecording.drawMovHandMaps(0);
         handles.CurrentRecording.drawCircularJointHists();
+        handles.CurrentRecording.drawSimplifiedMov();
         
         guidata(hObject, handles);
 
@@ -202,6 +206,7 @@ function Process_Callback(hObject, eventdata, handles)
     handles.CurrentRecording.drawStaticHandMaps(0);
     handles.CurrentRecording.drawMovHandMaps(0);
     handles.CurrentRecording.drawCircularJointHists();
+    handles.CurrentRecording.drawSimplifiedMov();
     
     guidata(hObject, handles);
     
@@ -249,15 +254,24 @@ function Open_Callback(hObject, eventdata, handles)
 
     
 function UpdateInfos(handles)
-    
-    set(handles.NbMovTxt, 'string', ['Nb movements: ' num2str(handles.CurrentRecording.NbMov)]);
-    set(handles.DurationTxt, 'string', ['Duration: ' num2str(handles.CurrentRecording.DurationMin) 'min ' num2str(handles.CurrentRecording.DurationSec) 's']);
-    switch(handles.CurrentRecording.Arm)
+    R=handles.CurrentRecording;
+    if(~isempty(R.SimplifiedMovTimeEither))
+        disp(['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Shoulder: ' num2str(round(R.SimplifiedMovTime(1)/R.t(end)*100)) '%, Elbow: ' num2str(round(R.SimplifiedMovTime(2)/R.t(end)*100)) '%, Synchro: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
+    end
+
+    [pathstr,name,ext] = fileparts(R.Filename);set(handles.FilenameTxt, 'string', ['File: ' name]);
+    set(handles.NbMovTxt, 'string', ['Nb movements: ' num2str(R.NbMov)]);
+    if(~isempty(R.SimplifiedMovTimeEither))
+        set(handles.MovementTimeTxt, 'string', ['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Shoulder: ' num2str(round(R.SimplifiedMovTime(1)/R.SimplifiedMovTimeEither*100)) '%, Elbow: ' num2str(round(R.SimplifiedMovTime(2)/R.SimplifiedMovTimeEither*100)) '%, Synchro: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
+    end
+    set(handles.DurationTxt, 'string', ['Duration: ' num2str(R.DurationMin) 'min ' num2str(R.DurationSec) 's']);
+    switch(R.Arm)
         case 'L'
             set(handles.ArmTxt, 'string', 'Left arm');
         case 'R'
             set(handles.ArmTxt, 'string', 'Right arm');
     end
+    drawnow;
 
 
 % --- Executes on button press in Save.
