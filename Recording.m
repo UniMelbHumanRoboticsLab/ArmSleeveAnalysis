@@ -36,6 +36,7 @@ classdef Recording
         Theta_d %Joint velocities
         SimplifiedTheta %Joint angles as: shoulder elevation (away from body) and elbow flexion
         SimplifiedTheta_d %Joint velocities
+        Swivel %Swivel angle
         XHand %Cartesian hand positions
         XHand_d %Cartesian hand velocities
         XShoulder
@@ -101,7 +102,7 @@ classdef Recording
                    %Check number of sensors in the recording
                    hinfo = hdf5info(R.Filename);
                    nb_sensors=length(hinfo.GroupHierarchy.Groups);
-                   if(nb_sensors<6 || ForceChestSensor)
+                   if(nb_sensors==5 || ForceChestSensor)
                        disp('Using CHEST sensor');
                        R.UsingChestSensor=true;
                    else
@@ -264,6 +265,7 @@ classdef Recording
             XShoulder = zeros(length(obj.q), 3);
             XElbow = zeros(length(obj.q), 3);
             SimplifiedTheta = zeros(length(obj.q), 2);
+            Swivel = zeros(length(obj.q), 1);
             %segments lengths
             l_s=obj.L(1);
             l_h=obj.L(2);
@@ -316,13 +318,17 @@ classdef Recording
                 XHand(i,:)=p_h;
 
                 % Calculate Joint Angles (as per ISB definition)
-                [p, e, a] = shoulderAngles(c_s,c_h,obj.Arm);
+                [p, e, a] = shoulderAngles(c_s, c_h, obj.Arm);
 
                 angleData(i,1) = p;
                 angleData(i,2) = e;
-                angleData(i,3) = a; %WRONG ???
-                angleData(i,4) = acos(dot(c_h(1:3,2),c_u(1:3,2)));
-                angleData(i,5) = acos(dot(c_h(1:3,3),c_u(1:3,3))); %WRONG ?????????
+                angleData(i,3) = a;
+                %angleData(i,4) = acos(dot(c_h(1:3,2),c_u(1:3,2)));
+                %angleData(i,5) = acos(dot(c_h(1:3,3),c_u(1:3,3))); %WRONG ?????????pronoSupinationAngle(c_h, c_u, obj.Arm);
+                [angleData(i,4), angleData(i,5)] = elbowAngles(c_h, c_u, obj.Arm);
+                
+                %Calculate swivel angle
+                swivel(i) = swivelAngle(c_s, c_h, c_u, obj.Arm);
             end
             
             waitbar(1,h,'Resampling data...')
@@ -342,13 +348,24 @@ classdef Recording
                 non_nans_idx=find(isfinite(angleData(:,1)));
                 angleData(end,1)=angleData(non_nans_idx(end),1);
             end
-            angleDataR = interp1(rawT,angleData,obj.t,'spline');
+            angleDataR = interp1(rawT,angleData,obj.t,'pchip'); %pchip gives more realistic interpolation than spline
+            
+%             if(isnan(swivel(1)))
+%                 non_nans_idx=find(isfinite(swivel));
+%                 swivel(1)=swivel(non_nans_idx(1));
+%             end
+%             if(isnan(swivel(end)))
+%                 non_nans_idx=find(isfinite(swivel));
+%                 swivel(end)=swivel(non_nans_idx(end));
+%             end
+%             swivelR = interp1(rawT,swivel,obj.t,'spline');
+              swivelR = swivel;
 
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
             XHand = spline(rawT,XHand',obj.t);
 
-            
+
             %Create actual joint angles (abduction, flexion etc... from ISB
             %angles):
             angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
@@ -360,11 +377,11 @@ classdef Recording
             SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
             SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
 
-%              figure();
-%              subplot(2,1,1);hold on;
-%              plot([angleData(:,3)]*180/pi);             
-%              subplot(2,1,2);hold on;
-%              plot(angleDataM(:,3)*180/pi, 'b');
+             figure();
+             subplot(2,1,1);hold on;
+             plot([angleData(:,4) angleData(:,5)]*180/pi);             
+             subplot(2,1,2);hold on;
+             plot(angleDataM(:,4)*180/pi, 'b');
 
             %Save to class members
             obj.Theta = angleDataM;
@@ -372,6 +389,7 @@ classdef Recording
             obj.XElbow = XElbow';
             obj.XHand = XHand';
             obj.SimplifiedTheta = SimplifiedTheta;
+            obj.Swivel = swivelR;
             obj.NbPts = length(obj.XHand);
 
             close(h);
@@ -642,6 +660,37 @@ classdef Recording
         end
         
         
+        % Correlation bewteen shoulder and elbow velocities: joint desynchronization
+        %computed only when hand is forward
+        function obj = calcJointsSynchronization(obj)
+            XHand = obj.XHand;
+            SimplifiedTheta_d = obj.SimplifiedTheta_d;
+            Theta_d = obj.Theta_d;
+            dt = obj.dt;
+            
+            %Use only samples where hand is forward (x positive forward)
+            hand_forward_idx=find(XHand(:,1)>0);
+            
+            %figure();plot(H.SimplifiedTheta_d(hand_forward_idx,1), H.SimplifiedTheta_d(hand_forward_idx,2), '.'); xlabel('Shoulder'); ylabel('Elbow');
+            
+            %Calculate correlation between the two signals, max covariance
+            %represent cov when shifted by the 'ideal' lag
+            max_lag =  2/dt;%max lag allowed: 2s
+            [cor, lag]=xcorr(SimplifiedTheta_d(hand_forward_idx,1), SimplifiedTheta_d(hand_forward_idx,2), max_lag, 'coeff');
+            max_cor=max(abs(cor));
+            %Get only the coef with no lag (and it's significance P) : 'true' correlation when signals are not
+            %shifted
+            [C, P]=corrcoef(SimplifiedTheta_d(hand_forward_idx,1), SimplifiedTheta_d(hand_forward_idx,2));
+            if(P(1,2)<0.05) %Significant correlation?
+                [cor, idx]=max(abs(cor)); %cor is the max in the 'correlation signal' and gives an estimation of the matching: higher better correlation
+                lag=lag(idx)*dt; %Get the 'optimal' delay between the two joints
+                disp(['Correlation (no lag) c=' num2str(C(1,2)) ' (p=' num2str(P(1,2)) ') Lag is:' num2str(lag) 's. Max correlation (at lag): c=' num2str(max_cor) ]);
+            else
+                disp(['No significant correlation at 0: c=' num2str(C(1,2)) ' (with p=' num2str(P(1,2)) ')']);
+            end 
+            
+        end
+        
         function obj = calcCumDoF(obj)
             Fs = 1/obj.dt;
             theta = obj.Theta;
@@ -832,7 +881,7 @@ classdef Recording
                 %Line should be of different style than actual plots !
                 line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
             end
-            title('Joint angles');
+            title('Joint angles');xlabel('t(s)');
             legend(p, obj.JointsNames);
         end
         
@@ -860,7 +909,7 @@ classdef Recording
                 p(1)=plot(t, SimplifiedTheta(:,1)*180/pi, 'r');
                 p(2)=plot(t, SimplifiedTheta(:,2)*180/pi, 'g');
 
-                title('Simplified joint angles');
+                title('Simplified joint angles');xlabel('t(s)');
                 legend(p, {'Shoulder';'Elbow'});
 
                 %Add a red line idx if needed
@@ -869,6 +918,24 @@ classdef Recording
                     %Line should be of different style than actual plots !
                     line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
                 end
+            end
+        end
+        
+        function h=drawSwivel(obj, varargin)
+            if(~isempty(obj.Swivel))
+                Swivel=obj.Swivel;
+                t=obj.t;
+                MovIdx=obj.MovIdx;
+                if(isempty(varargin))
+                    h=figure();
+                else
+                    axes(varargin{1});
+                end
+                hold on;
+
+                plot(t, Swivel*180/pi, 'r');
+
+                title('Swivel angle');xlabel('t(s)');
             end
         end
         
@@ -886,7 +953,7 @@ classdef Recording
             plot(t, Theta_d(:,3)*180/pi, 'b');
             plot(t, Theta_d(:,4)*180/pi, 'y');
             plot(t, Theta_d(:,5)*180/pi, 'm');
-            title('Joint velocities');
+            title('Joint velocities');xlabel('t(s)');
             legend(obj.JointsNames);
         end
         
@@ -901,7 +968,7 @@ classdef Recording
             hold on;
             plot(t, SimplifiedTheta_d(:,1)*180/pi, 'r');
             plot(t, SimplifiedTheta_d(:,2)*180/pi, 'g');
-            title('Simplified joint velocities');
+            title('Simplified joint velocities');xlabel('t(s)');
             legend({'Shoulder';'Elbow'});
         end
         
@@ -926,7 +993,7 @@ classdef Recording
                 line([t(idx) t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2) ;
             end
             
-            title('Hand trajectory');
+            title('Hand trajectory');xlabel('t(s)');
             legend(['x';'y';'z']);
         end
         function h=drawHandTraj3d(obj, varargin)
@@ -1199,7 +1266,7 @@ classdef Recording
             plot(t, SimplifiedMovIdxSynchro, 'r');
             %plot(t, A.SimplifiedMovIdxIndep, 'y');
             ylim([0 1.5]);
-            title('Simplified joint movements');
+            title('Simplified joint movements');xlabel('t(s)');
             legend({'Shoulder movement', 'Elbow movement', 'Symchronized movement'});
             %Display percentage values
             percent_moving=SimplifiedMovTimeEither./t(end)*100;

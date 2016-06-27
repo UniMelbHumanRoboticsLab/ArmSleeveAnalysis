@@ -256,13 +256,11 @@ function Open_Callback(hObject, eventdata, handles)
 function UpdateInfos(handles)
     R=handles.CurrentRecording;
     if(~isempty(R.SimplifiedMovTimeEither))
-        disp(['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Shoulder: ' num2str(round(R.SimplifiedMovTime(1)/R.t(end)*100)) '%, Elbow: ' num2str(round(R.SimplifiedMovTime(2)/R.t(end)*100)) '%, Synchro: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
+        disp(['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Shoulder: ' num2str(round(R.SimplifiedMovTime(1)/R.SimplifiedMovTimeEither*100)) '%, Elbow: ' num2str(round(R.SimplifiedMovTime(2)/R.SimplifiedMovTimeEither*100)) '%, Synchro: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
     end
-
-    [pathstr,name,ext] = fileparts(R.Filename);set(handles.FilenameTxt, 'string', ['File: ' name]);
     set(handles.NbMovTxt, 'string', ['Nb movements: ' num2str(R.NbMov)]);
     if(~isempty(R.SimplifiedMovTimeEither))
-        set(handles.MovementTimeTxt, 'string', ['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Shoulder: ' num2str(round(R.SimplifiedMovTime(1)/R.SimplifiedMovTimeEither*100)) '%, Elbow: ' num2str(round(R.SimplifiedMovTime(2)/R.SimplifiedMovTimeEither*100)) '%, Synchro: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
+        set(handles.MovementTimeTxt, 'string', ['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Sh: ' num2str(round(R.SimplifiedMovTime(1)/R.SimplifiedMovTimeEither*100)) '%, El: ' num2str(round(R.SimplifiedMovTime(2)/R.SimplifiedMovTimeEither*100)) '%, Sync: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
     end
     set(handles.DurationTxt, 'string', ['Duration: ' num2str(R.DurationMin) 'min ' num2str(R.DurationSec) 's']);
     switch(R.Arm)

@@ -18,15 +18,16 @@
 % 14/06/2016 - Take arm side as parameter and change angles computation
 % accordingly
 
-function [planeele, elevation, axial] = shoulderAngles(c_o,c_s,side)
+function [planeele, elevation, axial] = shoulderAngles(c_s, c_h, side)
 % Take the directions of the x and y axes from the transformation matrices
-x_o = squeeze(c_o(1:3,1,:))';
-y_o = squeeze(c_o(1:3,2,:))';
 x_s = squeeze(c_s(1:3,1,:))';
 y_s = squeeze(c_s(1:3,2,:))';
+x_h = squeeze(c_h(1:3,1,:))';
+y_h = squeeze(c_h(1:3,2,:))';
+z_h = squeeze(c_h(1:3,3,:))';
 
 % Calculate the number of datapoints and initiate the returned variables
-datapoints = length(y_o(:,1));
+datapoints = length(y_s(:,1));
 planeele = zeros(datapoints,1);
 elevation = zeros(datapoints,1);
 axial = zeros(datapoints,1);
@@ -36,49 +37,48 @@ for i=1:datapoints
     % Calculate the orientation of an intermediate axis representing the
     % x-axis after the first rotation
     if(side=='R')
-        interm_x = cross(y_o(i,:),y_s(i,:)); %For right arm
+        interm_x = cross(y_s(i,:),y_h(i,:)); %For right arm
     else
-        interm_x = cross(y_s(i,:),y_o(i,:)); %For left arm
+        interm_x = cross(y_h(i,:),y_s(i,:)); %For left arm
     end
     interm_x = interm_x/norm(interm_x);
-    
+
+
     % Calculate the first Y1 rotation. If the x-component of the y-axis is
     % positive, the angle is negative, otherwise it is positive
-    check = (c_o(:,:,i))\(y_s(i,:)');
+    check = (c_s(:,:,i))\(y_h(i,:)');
     if check(1)> 0
-       planeele(i) = acos(dot(x_o(i,:),interm_x));
+       planeele(i) = acos(dot(x_s(i,:),interm_x));
     else
-       planeele(i) = -acos(dot(x_o(i,:),interm_x));
+       planeele(i) = -acos(dot(x_s(i,:),interm_x));
     end
-    
-    %Planele is undefined when y_s and y_o are aligned (arm along the
+    %Planele is undefined when y_h and y_s are aligned (arm along the
     %trunk)
-    if(abs(dot(y_s(i,:),y_o(i,:)))>0.9)
+    if(abs(dot(y_h(i,:),y_s(i,:)))>0.9)
         planeele(i)=nan;
     else
         planeele(i)=planeele(i);
     end
-    
-    
-    % Elevation angle is always negative 
-    elevation(i) = -acos(dot(y_s(i,:),y_o(i,:)));
 
-    
+
+    % Elevation angle is always negative 
+    elevation(i) = -acos(dot(y_h(i,:),y_s(i,:)));
+
+
     % Axial rotation is the final rotation from the intermediate x-axis to
     % the final x-axis
- %   axial(i) = acos(dot(x_s(i,:),interm_x));
-    x_temp = dot(x_s(i,:),interm_x);
-    x_off = x_temp*interm_x;
-    x_temp2 = (x_s(i,:) - x_off);
-
-    axial(i) = atan2(norm(x_temp2), x_temp);
-
-    if(dot(cross(interm_x,x_s(i,:)),y_s) < 0)
-        axial(i)  = -axial(i);
+    if(side=='R')
+        axial(i) = atan2(norm(cross(x_h(i,:), interm_x)), dot(x_h(i,:), interm_x));
+    else
+        axial(i) = -atan2(norm(cross(x_h(i,:), -interm_x)), dot(x_h(i,:), -interm_x));
     end
+%     if(dot(cross(interm_x,x_h(i,:)),y_h) < 0)
+%         axial(i)  = -axial(i);
+%     end
+% 
+% 	if axial(i) > pi/2
+%         axial(i) = axial(i) -pi;
+%     end
+% axial(i) = axial(i) -pi/2;
 
-	if axial(i) > pi/2
-        axial(i) = axial(i) -pi;
-    end
-    
 end
