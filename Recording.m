@@ -21,6 +21,8 @@ classdef Recording
         velThresAll = [];
         timeThresOnAll = [];
         timeThresOffAll = [];
+            %For the hand
+        velThresHand = [];
 
 
         %Recording parameters
@@ -39,6 +41,9 @@ classdef Recording
         Swivel %Swivel angle
         XHand %Cartesian hand positions
         XHand_d %Cartesian hand velocities
+        XHand_tangential_d %Tangential hand velocity
+        HandVelPeaks %The velocity peaks values: 0 where not peak, value of peak otherwise
+        AvgPeakVel %Average peak velocity over the recording
         XShoulder
         XElbow
         L           % Neck-Should, UA, LA
@@ -401,6 +406,8 @@ classdef Recording
         %% Global Metrics
         function obj = calcEverything(obj)
             obj=calcDoFVelocities(obj);
+            obj=calcHandVelocity(obj);
+            obj=calcPeakVel(obj);
             obj=calcMove(obj);
             obj=calcMoveSimplified(obj);
             obj=calcCumDoF(obj);
@@ -410,6 +417,7 @@ classdef Recording
             obj=createHandMaps(obj);
             obj=createJointMaps(obj);
             obj=createJointHist(obj);
+            obj=calcJointsSynchronization(obj);
         end
         
         
@@ -444,6 +452,27 @@ classdef Recording
                 obj.SimplifiedTheta_d = filter(b, a, simplified_theta_dot);
             end
         end
+        
+        %Calculate hand velocity
+        function obj = calcHandVelocity(obj)
+            XHand = obj.XHand;
+            dt = obj.dt;
+            
+            % Calculate hand velocity in each direction
+            XHand_dot = zeros(length(XHand), 3);
+            for i = 1:length(XHand)-1
+                XHand_dot(i,:) = (XHand(i+1,:)-XHand(i,:))/dt;
+            end
+            XHand_dot(length(XHand),:) = (XHand(length(XHand),:)-XHand(length(XHand)-1,:))/dt;
+            % And filter
+            Fs = 1/dt;
+            Fc = 10;
+            [b,a] = butter(5, Fc/Fs);
+            obj.XHand_d = filter(b, a, XHand_dot);
+            
+            %Calculate tangential velocity of the hand (norm)
+            obj.XHand_tangential_d=sqrt(sum(obj.XHand_d'.^2));
+        end
 
         %MATLAB can't find it for whatever reason...
         function s = createMovementStructure()
@@ -470,6 +499,9 @@ classdef Recording
             obj.velThresAll = 60;
             obj.timeThresOnAll = 0.2;
             obj.timeThresOffAll = 0.2; 
+            
+            %For the hand
+            obj.velThresHand = .1; %m.s-1
         end
         
         function obj = calcMove(obj)
@@ -690,6 +722,7 @@ classdef Recording
             end 
             
         end
+
         
         function obj = calcCumDoF(obj)
             Fs = 1/obj.dt;
@@ -722,6 +755,26 @@ classdef Recording
 
         function obj = calcNumMov(obj)
             obj.NbMov = length(obj.Movements);
+        end
+        
+        %Isolate all hand peaks speed, index them and calculate average
+        %peak speed
+        function obj = calcPeakVel(obj)
+            obj = obj.setMovThresholds();
+            XHand_tangential_d=obj.XHand_tangential_d;
+            
+            %Find peaks with a velocity higher than the threshold and at
+            %least separated by the time threshold between two movements
+            timebetweenpksasidx=obj.timeThresOffAll/obj.dt;
+            [pks_val, pks_idx]=findpeaks(XHand_tangential_d, 'MinPeakHeight', obj.velThresHand, 'MinPeakDistance', timebetweenpksasidx);
+            
+            %Build a peak index where value is 0 when no peak and has peak
+            %value otherwise
+            obj.HandVelPeaks=zeros(size(XHand_tangential_d));
+            obj.HandVelPeaks(pks_idx)=pks_val;
+            
+            %Average velocity of these peaks
+            obj.AvgPeakVel = mean(pks_val);
         end
 
         
@@ -823,7 +876,6 @@ classdef Recording
   
         %% Per Movement Metrics
         function obj = calcPMROM(obj)
-            
         end
         
         function obj = calcPMPeakVel(obj)
@@ -847,6 +899,7 @@ classdef Recording
             drawJointHists(obj);
             drawCircularJointHists(obj);
             drawSimplifiedMov(obj);
+            drawHandPeaksVel(obj);
         end
         
         function h=drawTheta(obj, idx, varargin)
@@ -1006,6 +1059,35 @@ classdef Recording
             end
             plot3(XHand(:,1), XHand(:,2), XHand(:,3), 'r');
             title('Hand trajectory');
+        end
+        function h=drawHandTangentialVel(obj, varargin)
+            XHand_tangential_d=obj.XHand_tangential_d;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            plot(t, XHand_tangential_d);ylabel('m.s^{-1}');xlabel('t(s)');
+            title('Hand tangential velocity');
+        end
+        %Draw tangential hand elocity and add peaks and average peak value
+        function h=drawHandPeaksVel(obj, varargin)
+            XHand_tangential_d=obj.XHand_tangential_d;
+            HandVelPeaks=obj.HandVelPeaks;
+            AvgPeakVel=obj.AvgPeakVel;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            plot(t, XHand_tangential_d, t(find(HandVelPeaks)), HandVelPeaks(find(HandVelPeaks)), 'or');
+            hold on;
+            plot([t(1) t(end)], [AvgPeakVel AvgPeakVel], 'g');
+            ylabel('m.s^{-1}');xlabel('t(s)');
+            title('Hand tangential velocity peaks');
+            legend({'Velocity', ['Peaks (N=' num2str(length(find(HandVelPeaks))) ')'], ['Avg peak (' num2str(AvgPeakVel) ')']});
         end
  
         function h=drawArm3d(obj, i, varargin)
