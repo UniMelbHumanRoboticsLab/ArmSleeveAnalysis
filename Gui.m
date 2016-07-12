@@ -22,7 +22,7 @@ function varargout = Gui(varargin)
 
 % Edit the above text to modify the response to help Gui
 
-% Last Modified by GUIDE v2.5 11-Apr-2016 12:10:54
+% Last Modified by GUIDE v2.5 06-Jun-2016 09:16:41
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 0;
@@ -116,6 +116,12 @@ function Load_Callback(hObject, eventdata, handles)
         %Update values in the GUI (nb movements, time)
         UpdateInfos(handles);
 
+        %Recompute things
+        handles.CurrentRecording.calcEverything();
+        
+        %Update values in the GUI (nb movements, time)
+        UpdateInfos(handles);
+
         %Update graphs in the GUI
         cla(handles.Plot1,'reset');
         cla(handles.Plot2,'reset');
@@ -127,19 +133,22 @@ function Load_Callback(hObject, eventdata, handles)
         set(handles.slider1, 'value', 1);
 
         %Create other graphs
-        handles.CurrentRecording.drawGlobalHandMaps(0);
+        handles.CurrentRecording.drawSimplifiedTheta(0);
+        handles.CurrentRecording.drawSimplifiedTheta_d();
         handles.CurrentRecording.drawStaticHandMaps(0);
         handles.CurrentRecording.drawMovHandMaps(0);
-        handles.CurrentRecording.drawJointHists();
+        handles.CurrentRecording.drawCircularJointHists();
+        handles.CurrentRecording.drawSimplifiedMov();
         
         guidata(hObject, handles);
 
-        %And activate/deactivate stuff
+        %Activate/deactivate stuff
         set(handles.Open,'enable','on');
         set(handles.Process,'enable','on');
         set(handles.PlayPause,'enable','off');
         set(handles.Load,'enable','on');
         set(handles.Save,'enable','off');
+        set(handles.ExportCSV,'enable','on');
         set(handles.FilenameEdit,'string',filename);
         
         %Not busy anymore
@@ -192,10 +201,12 @@ function Process_Callback(hObject, eventdata, handles)
     set(handles.slider1, 'value', 1);
     
     %Create other graphs
-    handles.CurrentRecording.drawGlobalHandMaps(0);
+    handles.CurrentRecording.drawSimplifiedTheta(0);
+    handles.CurrentRecording.drawSimplifiedTheta_d();
     handles.CurrentRecording.drawStaticHandMaps(0);
     handles.CurrentRecording.drawMovHandMaps(0);
-    handles.CurrentRecording.drawJointHists();
+    handles.CurrentRecording.drawCircularJointHists();
+    handles.CurrentRecording.drawSimplifiedMov();
     
     guidata(hObject, handles);
     
@@ -205,6 +216,7 @@ function Process_Callback(hObject, eventdata, handles)
     set(handles.PlayPause,'enable','on');
     set(handles.Load,'enable','on');
     set(handles.Save,'enable','on');
+    set(handles.ExportCSV,'enable','on');
     
     %Not busy anymore
     set(handles.figure1, 'pointer', 'arrow');
@@ -235,21 +247,29 @@ function Open_Callback(hObject, eventdata, handles)
         set(handles.Process,'enable','on');
         set(handles.PlayPause,'enable','off');
         set(handles.Load,'enable','on');
+        set(handles.ExportCSV,'enable','off');
         set(handles.Save,'enable','off');
         set(handles.FilenameEdit,'string',filename);
     end
 
     
 function UpdateInfos(handles)
-    
-    set(handles.NbMovTxt, 'string', ['Nb movements: ' num2str(handles.CurrentRecording.NbMov)]);
-    set(handles.DurationTxt, 'string', ['Duration: ' num2str(handles.CurrentRecording.DurationMin) 'min ' num2str(handles.CurrentRecording.DurationSec) 's']);
-    switch(handles.CurrentRecording.Arm)
+    R=handles.CurrentRecording;
+    if(~isempty(R.SimplifiedMovTimeEither))
+        disp(['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Shoulder: ' num2str(round(R.SimplifiedMovTime(1)/R.SimplifiedMovTimeEither*100)) '%, Elbow: ' num2str(round(R.SimplifiedMovTime(2)/R.SimplifiedMovTimeEither*100)) '%, Synchro: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
+    end
+    set(handles.NbMovTxt, 'string', ['Nb movements: ' num2str(R.NbMov)]);
+    if(~isempty(R.SimplifiedMovTimeEither))
+        set(handles.MovementTimeTxt, 'string', ['Movement time: ' num2str(round(R.SimplifiedMovTimeEither/R.t(end)*100)) '% (Sh: ' num2str(round(R.SimplifiedMovTime(1)/R.SimplifiedMovTimeEither*100)) '%, El: ' num2str(round(R.SimplifiedMovTime(2)/R.SimplifiedMovTimeEither*100)) '%, Sync: ' num2str(round(R.SimplifiedMovTimeSynchro/R.SimplifiedMovTimeEither*100)) '%)']);
+    end
+    set(handles.DurationTxt, 'string', ['Duration: ' num2str(R.DurationMin) 'min ' num2str(R.DurationSec) 's']);
+    switch(R.Arm)
         case 'L'
             set(handles.ArmTxt, 'string', 'Left arm');
         case 'R'
             set(handles.ArmTxt, 'string', 'Right arm');
     end
+    drawnow;
 
 
 % --- Executes on button press in Save.
@@ -320,3 +340,11 @@ function slider1_CreateFcn(hObject, eventdata, handles)
     if isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
         set(hObject,'BackgroundColor',[.9 .9 .9]);
     end
+
+
+% --- Executes on button press in ExportCSV.
+function ExportCSV_Callback(hObject, eventdata, handles)
+% hObject    handle to ExportCSV (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+    handles.CurrentRecording=handles.CurrentRecording.exportAllCSV();

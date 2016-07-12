@@ -8,23 +8,42 @@ classdef Recording
     end
     properties (GetAccess=public)
         %Constants
-        JointsLimits=[[-60 180];[-80 180];[-90 90];[0 160];[0 180]];
-        JointsNames={'Shoulder flexion', 'Shoulder abduction', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
+        JointsLimits=[[-80 180];[-80 180];[-90 90];[0 160];[0 180]];
+        JointsNames={'Shoulder abduction', 'Shoulder flexion', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
         HistNbBins;
         
-        
+        %Movement detection parameters: see setMovThresholds
+            %For individual joints
+        velThres = [];
+        timeThresOn = [];
+        timeThresOff = [];
+            %For the sum of all joints
+        velThresAll = [];
+        timeThresOnAll = [];
+        timeThresOffAll = [];
+            %For the hand
+        velThresHand = [];
+
+
         %Recording parameters
         Arm
+        UsingChestSensor %True if chest sensor is used as reference instead of shoulder ones
         DurationMin
         DurationSec
         NbPts
         t
 
         % Processed Data
-        Theta
-        Theta_d
-        XHand
-        XHand_d
+        Theta %Actual joint angles
+        Theta_d %Joint velocities
+        SimplifiedTheta %Joint angles as: shoulder elevation (away from body) and elbow flexion
+        SimplifiedTheta_d %Joint velocities
+        Swivel %Swivel angle
+        XHand %Cartesian hand positions
+        XHand_d %Cartesian hand velocities
+        XHand_tangential_d %Tangential hand velocity
+        HandVelPeaks %The velocity peaks values: 0 where not peak, value of peak otherwise
+        AvgPeakVel %Average peak velocity over the recording
         XShoulder
         XElbow
         L           % Neck-Should, UA, LA
@@ -37,6 +56,14 @@ classdef Recording
         NbMov
         MovTime
         MovTimePerJoint
+        SimplifiedMovIdx
+        SimplifiedMovIdxSynchro
+        SimplifiedMovIdxIndep
+        SimplifiedMovIdxEither
+        SimplifiedMovTime
+        SimplifiedMovTimeSynchro
+        SimplifiedMovTimeIndep
+        SimplifiedMovTimeEither
         
         %Maps
         StaticHandMap
@@ -57,12 +84,19 @@ classdef Recording
     methods
         %% Constructors
         
-        function R = Recording(filename, StartTime, EndTime, fs, arm)
-           %TODO: set defaukt param values
+        function R = Recording(filename, StartTime, EndTime, fs, arm, varargin)
             
            % Save Filename into object
            R.Filename = filename;
            R.Arm=arm;
+           
+           %If specified force to use chest sensor for joint computation 
+           %even if shoulder sensors are available
+           if(isempty(varargin))
+               ForceChestSensor=false;
+           else
+               ForceChestSensor=varargin{1};
+           end
            
            %Test filename extension: if h5 assume Opal
            %If csv assume custom
@@ -70,7 +104,17 @@ classdef Recording
            switch(ext)
                case '.h5'
                    disp(['Opal sensors file: ' R.Filename]);
-                   R = RecordingH5(R, StartTime, EndTime);
+                   %Check number of sensors in the recording
+                   hinfo = hdf5info(R.Filename);
+                   nb_sensors=length(hinfo.GroupHierarchy.Groups);
+                   if(nb_sensors==5 || ForceChestSensor)
+                       disp('Using CHEST sensor');
+                       R.UsingChestSensor=true;
+                   else
+                       disp('Using SHOULDER sensors');
+                       R.UsingChestSensor=false;
+                   end
+                   R = RecordingH5(R, StartTime, EndTime); 
                
                case '.csv'
                    disp(['Own sensors file: ' R.Filename]);
@@ -118,7 +162,7 @@ classdef Recording
 
 
         % Filename, StartTime, Endtime, Sampling Frequency (nominal)
-        %for Opal h5 files
+        %for Opal h5 files with shoulder sensors
         function R = RecordingH5(R, StartTime, EndTime)
             
             % Arm segments lengths
@@ -132,8 +176,10 @@ classdef Recording
                 R_Shoulder=4;
                 R_Elbow=5;
                 R_Wrist=6;
+                Chest=7;
 
                 %Opal sensors IDs
+                SensorsIds(Chest, :)='SI-002545';
                 SensorsIds(L_Shoulder, :)='SI-002500';
                 SensorsIds(L_Elbow, :)='SI-002532';
                 SensorsIds(L_Wrist, :)='SI-002575';
@@ -142,6 +188,7 @@ classdef Recording
                 SensorsIds(R_Wrist, :)='SI-002561';
 
                 %Corresponding labels
+                SensorsLabels{Chest}='Chest';
                 SensorsLabels{L_Shoulder}='L Shoulder';
                 SensorsLabels{L_Elbow}='L_Elbow';
                 SensorsLabels{L_Wrist}='L_Wrist';
@@ -150,7 +197,11 @@ classdef Recording
                 SensorsLabels{R_Wrist}='R_Wrist';
             
                 if(R.Arm=='R')
-                    sdata = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Calibrated/Orientation'])';
+                    if(R.UsingChestSensor)
+                       sdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
+                    else
+                       sdata = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Calibrated/Orientation'])'; 
+                    end
                     edata = h5read(R.Filename,['/' SensorsIds(R_Elbow, :) '/Calibrated/Orientation'])';
                     wdata = h5read(R.Filename,['/' SensorsIds(R_Wrist, :) '/Calibrated/Orientation'])';
                     stime = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Time']);
@@ -159,7 +210,11 @@ classdef Recording
                 end
 
                 if(R.Arm=='L')
-                    sdata = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Calibrated/Orientation'])';
+                    if(R.UsingChestSensor)
+                       sdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
+                    else
+                       sdata = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Calibrated/Orientation'])'; 
+                    end
                     edata = h5read(R.Filename,['/' SensorsIds(L_Elbow, :) '/Calibrated/Orientation'])';
                     wdata = h5read(R.Filename,['/' SensorsIds(L_Wrist, :) '/Calibrated/Orientation'])';
                     stime = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Time']);
@@ -205,14 +260,17 @@ classdef Recording
 
         %% Data Processing
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        % Calculate angles of the joints.
-        % TODO: Shoulder offsets
+        % Calculate angles of the joints 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         function obj = calcDoFAngles(obj)
             q=obj.q;
             angleData = zeros(length(obj.q), 5);
             angleDataM = zeros(length(obj.q), 5);
             XHand = zeros(length(obj.q), 3);
+            XShoulder = zeros(length(obj.q), 3);
+            XElbow = zeros(length(obj.q), 3);
+            SimplifiedTheta = zeros(length(obj.q), 2);
+            Swivel = zeros(length(obj.q), 1);
             %segments lengths
             l_s=obj.L(1);
             l_h=obj.L(2);
@@ -223,42 +281,40 @@ classdef Recording
                  0 -1 0;
                  0 0 -1];
 
-            Ry = [1 0 0;
-                0 0 -1;
-                0 1 0];
-            
-            ssTs = [0 1 0 0;
-                0 0 1 0;
-                1 0 0 0;
-                0 0 0 1];
-            hsTh = [0 0 -1 0;
-                -1 0 0 0;
-                0 1 0 0 ;
-                0 0 0 1];
-
-
             % Calculate the angles and hand position
             h = waitbar(0, 'Calculating joint angles...');
             
             for i = 1:length(q)
-                waitbar(i/length(q));
-                q_h = quatinv(q(i,6:9)/quatnorm(q(i,6:9)));
-                q_u = quatinv(q(i,2:5)/quatnorm(q(i,2:5)));
-                q_s = quatinv(q(i,10:13)/quatnorm(q(i,10:13)));
+                if(mod(i,100)==1)
+                    waitbar(i/length(q));
+                end
+                q_h = quatinv(q(i,6:9));%No need to normalize, quatrotate does it anyway%/quatnorm(q(i,6:9)));
+                q_u = quatinv(q(i,2:5));%/quatnorm(q(i,2:5)));
+                q_s = quatinv(q(i,10:13));%/quatnorm(q(i,10:13)));
 
                 % Creates frames for shoulder, humerus and ulna sensors
                 c_ss = quatrotate(q_s,eye(3))';
                 c_hs = quatrotate(q_h,eye(3))';
                 c_us = quatrotate(q_u,eye(3))';
 
-                c_s = [-c_ss(:,2) [-c_ss(1:2,3); c_ss(3,3)] [-c_ss(1:2,1); c_ss(3,1)] ];
+                
+                %Create ISB frames
+                if(obj.UsingChestSensor)
+                    % Use chest sensor as reference one (only sensor
+                    % orientation change)
+                    c_s = [c_ss(:,3) -c_ss(:,1) -c_ss(:,2)];
+                else
+                    % Use shoulder sensor as reference
+                    if(obj.Arm=='R')
+                        c_s = [c_ss(:,2) c_ss(:,3) -c_ss(:,1)];
+                    else
+                        c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
+                    end
+                end
                 c_h = [-c_hs(:,3) -c_hs(:,1) c_hs(:,2)];
                 c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
 
-                T_s = [c_s [0 0 0]'; 0 0 0 1];
-                T_h = [c_h [0 0 0]'; 0 0 0 1];
-                T_u = [c_u [0 0 0]'; 0 0 0 1];
-                
+                %Compute joint positions
                 p_s = c_s(:,3)*l_s;
                 p_e =  p_s - c_h(:,2)*l_h;
                 p_h = p_e - c_u(:,2)*l_u;
@@ -266,22 +322,18 @@ classdef Recording
                 XElbow(i,:)=p_e;
                 XHand(i,:)=p_h;
 
-                % Calculate Joint Angles
-                [p, e, a] = shoulderAngles(T_s,T_h);
+                % Calculate Joint Angles (as per ISB definition)
+                [p, e, a] = shoulderAngles(c_s, c_h, obj.Arm);
 
                 angleData(i,1) = p;
                 angleData(i,2) = e;
                 angleData(i,3) = a;
-
-                angleData(i,4) = acos(dot(T_h(1:3,2),T_u(1:3,2)));
-                angleData(i,5) = acos(dot(T_h(1:3,3),T_u(1:3,3)));   
-
-                PE(i,:) = [sin(-e)*sin(p), -cos(e), sin(-e)*cos(p)];
-
-                angleDataM(i,1) = -e*cos(p); %Flexion/extension (flexion forward, extension backward, -60 to 180)
-                angleDataM(i,2) = -e*sin(p); %Abduction/adduction (abduction external, -80 to 180)
-                angleDataM(i,3) = a + p;    %Axial rotation (internal -, external +, -90 to 90)
-                angleDataM(i,4:5) = angleData(i,4:5);   %Elbow flexion (0-160) and pronation (0-180)
+                %angleData(i,4) = acos(dot(c_h(1:3,2),c_u(1:3,2)));
+                %angleData(i,5) = acos(dot(c_h(1:3,3),c_u(1:3,3))); %WRONG ?????????pronoSupinationAngle(c_h, c_u, obj.Arm);
+                [angleData(i,4), angleData(i,5)] = elbowAngles(c_h, c_u, obj.Arm);
+                
+                %Calculate swivel angle
+                swivel(i) = swivelAngle(c_s, c_h, c_u, obj.Arm);
             end
             
             waitbar(1,h,'Resampling data...')
@@ -289,24 +341,89 @@ classdef Recording
             % Normalise to start of file
             rawT = q(:,1)/1000 - q(1,1)/1000*ones(length(q),1);
             
-            % Resample the data
+            % Resample (and interpolate) the data:
             obj.t = [rawT(1):obj.dt:rawT(end)];
-            theta = spline(rawT,angleDataM',obj.t);
-            obj.Theta = theta';
+            
+            % Ensure that first and last values are not NaNs:
+            if(isnan(angleData(1,1)))
+                non_nans_idx=find(isfinite(angleData(:,1)));
+                angleData(1,1)=angleData(non_nans_idx(1),1);
+            end
+            if(isnan(angleData(end,1)))
+                non_nans_idx=find(isfinite(angleData(:,1)));
+                angleData(end,1)=angleData(non_nans_idx(end),1);
+            end
+            angleDataR = interp1(rawT,angleData,obj.t,'pchip'); %pchip gives more realistic interpolation than spline
+            
+%             if(isnan(swivel(1)))
+%                 non_nans_idx=find(isfinite(swivel));
+%                 swivel(1)=swivel(non_nans_idx(1));
+%             end
+%             if(isnan(swivel(end)))
+%                 non_nans_idx=find(isfinite(swivel));
+%                 swivel(end)=swivel(non_nans_idx(end));
+%             end
+%             swivelR = interp1(rawT,swivel,obj.t,'spline');
+              swivelR = swivel;
+
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
             XHand = spline(rawT,XHand',obj.t);
+
+
+            %Create actual joint angles (abduction, flexion etc... from ISB
+            %angles):
+            angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
+            angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
+            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1); %Axial rotation (internal -, external +, -90 to 90)
+            angleDataM(:,4:5) = angleDataR(:,4:5);   %Elbow flexion (0-160) and pronation (0-180)
+
+            %and simplified angles:
+            SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
+            SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
+
+             figure();
+             subplot(2,1,1);hold on;
+             plot([angleData(:,4) angleData(:,5)]*180/pi);             
+             subplot(2,1,2);hold on;
+             plot(angleDataM(:,4)*180/pi, 'b');
+
+            %Save to class members
+            obj.Theta = angleDataM;
             obj.XShoulder = XShoulder';
             obj.XElbow = XElbow';
             obj.XHand = XHand';
+            obj.SimplifiedTheta = SimplifiedTheta;
+            obj.Swivel = swivelR;
             obj.NbPts = length(obj.XHand);
-            
+
             close(h);
         end
 
+
+        
+
+        %% Global Metrics
+        function obj = calcEverything(obj)
+            obj=calcDoFVelocities(obj);
+            obj=calcHandVelocity(obj);
+            obj=calcPeakVel(obj);
+            obj=calcMove(obj);
+            obj=calcMoveSimplified(obj);
+            obj=calcCumDoF(obj);
+            obj=calcROM(obj);
+            obj=calcNumMov(obj);
+            obj=calcMovTime(obj);
+            obj=createHandMaps(obj);
+            obj=createJointMaps(obj);
+            obj=createJointHist(obj);
+            obj=calcJointsSynchronization(obj);
+        end
+        
         
         function obj = calcDoFVelocities(obj)
             theta = obj.Theta;
+            simplified_theta = obj.SimplifiedTheta;
             t = obj.t;
             
             % Calculate the angular velocities of each DoF
@@ -316,14 +433,47 @@ classdef Recording
                 theta_dot(i,:) = (theta(i+1,:)-theta(i,:))/dt;
             end
             theta_dot(length(t),:) = (theta(length(t),:)-theta(length(t)-1,:))/dt;
-            
+            % And filter
             Fs = 1/(t(2)-t(1));
             Fc = 10; 
             [b,a] = butter(5, Fc/Fs);
-            
             obj.Theta_d = filter(b, a, theta_dot);
+            
+            % Calculate the angular velocities of simplified DoFs
+            if(~isempty(simplified_theta))
+                simplified_theta_dot = zeros(length(t), 2);
+                dt = t(2)-t(1);
+                for i = 1:length(t)-1
+                    simplified_theta_dot(i,:) = (simplified_theta(i+1,:)-simplified_theta(i,:))/dt;
+                end
+                simplified_theta_dot(length(t),:) = (simplified_theta(length(t),:)-simplified_theta(length(t)-1,:))/dt;
+                % And filter
+                [b,a] = butter(5, Fc/Fs);
+                obj.SimplifiedTheta_d = filter(b, a, simplified_theta_dot);
+            end
         end
         
+        %Calculate hand velocity
+        function obj = calcHandVelocity(obj)
+            XHand = obj.XHand;
+            dt = obj.dt;
+            
+            % Calculate hand velocity in each direction
+            XHand_dot = zeros(length(XHand), 3);
+            for i = 1:length(XHand)-1
+                XHand_dot(i,:) = (XHand(i+1,:)-XHand(i,:))/dt;
+            end
+            XHand_dot(length(XHand),:) = (XHand(length(XHand),:)-XHand(length(XHand)-1,:))/dt;
+            % And filter
+            Fs = 1/dt;
+            Fc = 10;
+            [b,a] = butter(5, Fc/Fs);
+            obj.XHand_d = filter(b, a, XHand_dot);
+            
+            %Calculate tangential velocity of the hand (norm)
+            obj.XHand_tangential_d=sqrt(sum(obj.XHand_d'.^2));
+        end
+
         %MATLAB can't find it for whatever reason...
         function s = createMovementStructure()
             %Per movement metrics and properties
@@ -335,22 +485,37 @@ classdef Recording
             'StopTime', -1,....
             'DoFPart',[]);
         end
-        
+      
+        %Define the movement velocity and time thresholds used for
+        %movements detection. Called by calcMov and calcSimplifiedMov
+        function obj = setMovThresholds(obj)
+           % Parameters
+            % For each Joint
+            obj.velThres = 40;
+            obj.timeThresOn = 0.2;
+            obj.timeThresOff = 0.2;
+            
+            % For the sum of all joints
+            obj.velThresAll = 60;
+            obj.timeThresOnAll = 0.2;
+            obj.timeThresOffAll = 0.2; 
+            
+            %For the hand
+            obj.velThresHand = .1; %m.s-1
+        end
         
         function obj = calcMove(obj)
             theta_dot = obj.Theta_d;
             f = 1/obj.dt;
             
-            % Parameters
-            % For each Joint
-            velThres = 40;
-            timeThresOn = 0.2;
-            timeThresOff = 0.1;
-            
-            % For the sum of all joints
-            velThresAll = 60;
-            timeThresOnAll = 0.2;
-            timeThresOffAll = 0.2;
+            %Define parameters values
+            obj=obj.setMovThresholds();
+            velThres=obj.velThres;
+            timeThresOn=obj.timeThresOn;
+            timeThresOff=obj.timeThresOff;
+            velThresAll=obj.velThresAll;
+            timeThresOnAll=obj.timeThresOnAll;
+            timeThresOffAll=obj.timeThresOffAll;
 
             % Calculate whether a movement is currently being made
             % Index to determine whether each DoF is moving
@@ -488,30 +653,76 @@ classdef Recording
             obj.MovIdx = DoFMove(:,1)|DoFMove(:,2)|DoFMove(:,3)|DoFMove(:,4);
             obj.Movements = Movements;
         end
-                
-         
-        %Done in calcDoFAngles for speed
-%         function obj = calcHandPos(obj)
-%             % Calcualte the Hand Positions
-%             % VINCENT - TODO
-%             theta = obj.Theta;
-%             L = obj.L;
-%         end
         
+        function obj = calcMoveSimplified(obj)
+            theta_dot = obj.SimplifiedTheta_d;
+            f = 1/obj.dt;
+            
+            %Define parameters values
+            obj=obj.setMovThresholds();
 
-        %% Global Metrics
-        function obj = calcEverything(obj)
-            obj=calcDoFVelocities(obj);
-            obj=calcMove(obj);
-            obj=calcCumDoF(obj);
-            obj=calcROM(obj);
-            obj=calcNumMov(obj);
-            obj=calcMovTime(obj);
-            obj=createHandMaps(obj);
-            obj=createJointMaps(obj);
-            obj=createJointHist(obj);
+            % Calculate whether a movement is currently being made
+            % Index to determine whether each simplified DoF is moving
+            obj.SimplifiedMovIdx = zeros(length(theta_dot), 2);
+            
+            %Simply detect by velocity threshold
+            obj.SimplifiedMovIdx(find(abs(theta_dot)>(obj.velThres/180*pi)))=1; %Each joint (shoulder, elbow) individually
+            obj.SimplifiedMovIdxSynchro=obj.SimplifiedMovIdx(:,1)&obj.SimplifiedMovIdx(:,2); %Both joint moving together
+            obj.SimplifiedMovIdxIndep=xor(obj.SimplifiedMovIdx(:,1), obj.SimplifiedMovIdx(:,2)); %Only one moving at a time
+            obj.SimplifiedMovIdxEither=obj.SimplifiedMovIdx(:,1)|obj.SimplifiedMovIdx(:,2); %Any joint moving
         end
         
+        function obj = calcMovTime(obj)
+            %TODO: improve with actual dt for each
+            dt=obj.dt;
+            MovIdx=obj.MovIdx;
+            MovIdxPerJoint=obj.MovIdxPerJoint;
+            
+            %Global
+            obj.MovTime=sum(MovIdx)*dt;
+            
+            %PerJoint
+            obj.MovTimePerJoint=sum(MovIdxPerJoint).*dt;
+            
+            %For simplified joint angles and synchronization
+            obj.SimplifiedMovTime=sum(obj.SimplifiedMovIdx).*dt; %Each joint: shoulder, elbow indovidually
+            obj.SimplifiedMovTimeSynchro=sum(obj.SimplifiedMovIdxSynchro).*dt; %Both joints at the same time
+            obj.SimplifiedMovTimeIndep=sum(obj.SimplifiedMovIdxIndep).*dt; %Both joints at the same time
+            obj.SimplifiedMovTimeEither=sum(obj.SimplifiedMovIdxEither).*dt; %Any joint moving
+        end
+        
+        
+        % Correlation bewteen shoulder and elbow velocities: joint desynchronization
+        %computed only when hand is forward
+        function obj = calcJointsSynchronization(obj)
+            XHand = obj.XHand;
+            SimplifiedTheta_d = obj.SimplifiedTheta_d;
+            Theta_d = obj.Theta_d;
+            dt = obj.dt;
+            
+            %Use only samples where hand is forward (x positive forward)
+            hand_forward_idx=find(XHand(:,1)>0);
+            
+            %figure();plot(H.SimplifiedTheta_d(hand_forward_idx,1), H.SimplifiedTheta_d(hand_forward_idx,2), '.'); xlabel('Shoulder'); ylabel('Elbow');
+            
+            %Calculate correlation between the two signals, max covariance
+            %represent cov when shifted by the 'ideal' lag
+            max_lag =  2/dt;%max lag allowed: 2s
+            [cor, lag]=xcorr(SimplifiedTheta_d(hand_forward_idx,1), SimplifiedTheta_d(hand_forward_idx,2), max_lag, 'coeff');
+            max_cor=max(abs(cor));
+            %Get only the coef with no lag (and it's significance P) : 'true' correlation when signals are not
+            %shifted
+            [C, P]=corrcoef(SimplifiedTheta_d(hand_forward_idx,1), SimplifiedTheta_d(hand_forward_idx,2));
+            if(P(1,2)<0.05) %Significant correlation?
+                [cor, idx]=max(abs(cor)); %cor is the max in the 'correlation signal' and gives an estimation of the matching: higher better correlation
+                lag=lag(idx)*dt; %Get the 'optimal' delay between the two joints
+                disp(['Correlation (no lag) c=' num2str(C(1,2)) ' (p=' num2str(P(1,2)) ') Lag is:' num2str(lag) 's. Max correlation (at lag): c=' num2str(max_cor) ]);
+            else
+                disp(['No significant correlation at 0: c=' num2str(C(1,2)) ' (with p=' num2str(P(1,2)) ')']);
+            end 
+            
+        end
+
         
         function obj = calcCumDoF(obj)
             Fs = 1/obj.dt;
@@ -532,39 +743,61 @@ classdef Recording
  
         function obj = calcROM(obj)
             % Requires 
-            theta = obj.Theta;
+            Theta = obj.Theta;
             
+            %For each joint
+            for i=1:size(Theta, 2)
+                ROM(i, 1)=min(Theta(:,i));
+                ROM(i, 2)=max(Theta(:,i));
+            end
+            obj.ROM=ROM;
         end
 
         function obj = calcNumMov(obj)
             obj.NbMov = length(obj.Movements);
         end
-
-        function obj = calcMovTime(obj)
-            %TODO: improve with actual dt for each
-            dt=obj.dt;
-            MovIdx=obj.MovIdx;
-            MovIdxPerJoint=obj.MovIdxPerJoint;
+        
+        %Isolate all hand peaks speed, index them and calculate average
+        %peak speed
+        function obj = calcPeakVel(obj)
+            obj = obj.setMovThresholds();
+            XHand_tangential_d=obj.XHand_tangential_d;
             
-            %Global
-            obj.MovTime=sum(MovIdx)*dt;
+            %Find peaks with a velocity higher than the threshold and at
+            %least separated by the time threshold between two movements
+            timebetweenpksasidx=obj.timeThresOffAll/obj.dt;
+            [pks_val, pks_idx]=findpeaks(XHand_tangential_d, 'MinPeakHeight', obj.velThresHand, 'MinPeakDistance', timebetweenpksasidx);
             
-            %PerJoint
-            obj.MovTimePerJoint=sum(MovIdxPerJoint).*dt;
+            %Build a peak index where value is 0 when no peak and has peak
+            %value otherwise
+            obj.HandVelPeaks=zeros(size(XHand_tangential_d));
+            obj.HandVelPeaks(pks_idx)=pks_val;
+            
+            %Average velocity of these peaks
+            obj.AvgPeakVel = mean(pks_val);
         end
 
+        
+        function [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj)%RESOLUTION as a parameter ?
+            L=obj.L; % Neck-Should, UA, LA
 
-        function obj = createHandMaps(obj) %RESOLUTION as a parameter ?
-            L=obj.L;
+            Resolution=0.02;
+            %Center at neck point
+            XEdges=[-(L(2)+L(3)):Resolution:L(2)+L(3)]; %X positive forward
+            if(obj.Arm=='R')
+                YEdges=[-(L(2)+L(3)+L(1)):Resolution:(L(2)+L(3)-L(1))]; %Y positive subject left
+            else
+                YEdges=[-(L(2)+L(3)-L(1)):Resolution:(L(2)+L(3)+L(1))]; %Y positive subject left
+            end
+            ZEdges=[-(L(2)+L(3)):Resolution:L(2)+L(3)]; %Z positive up
+        end
+        
+        function obj = createHandMaps(obj)
+            L=obj.L; % Neck-Should, UA, LA
             XHand=obj.XHand;
             
-            Resolution=0.02;
-            % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-            XEdges=[-0.6:Resolution:0.8];
-            YEdges=[-0.8:Resolution:0.8];
-            ZEdges=[-0.9:Resolution:0.6];
-            
-            
+            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+
             %Global (all postures) histograms
                 %Sagittal: Histogram x,z: side view, x positive forward, z positive up
                 [XZCount, XZEdges, XZMid, XZLoc]=histcn([XHand(:,1) XHand(:,3)], XEdges, ZEdges);
@@ -578,7 +811,7 @@ classdef Recording
 
                 obj.GlobalHandMap=GlobalHandMap;
 
-                
+
             %Static only postures histograms
                 MovIdx=obj.MovIdx;
                 XHand=obj.XHand;
@@ -595,8 +828,8 @@ classdef Recording
                 StaticHandMap{2}=(ZYCount(end:-1:1, :)+1).*50;
 
                 obj.StaticHandMap=StaticHandMap;
-                
-            
+
+
             %Movement only postures histograms
                 MovIdx=obj.MovIdx;
                 XHand=obj.XHand;
@@ -622,16 +855,18 @@ classdef Recording
         function obj = createJointHist(obj)
             Theta=obj.Theta.*180/pi;
             JointsLimits=obj.JointsLimits;
-            HistNbBins=200;
+            HistNbBins=30;
             obj.HistNbBins=HistNbBins;
             MovIdx=obj.MovIdx;
             MovTheta=Theta(find(MovIdx==1), :);
             StaticTheta=Theta(find(MovIdx==0), :);
             for i=1:size(Theta, 2)
-                xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
+                bin_size=(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins;
+                xbins=[JointsLimits(i,1):bin_size:JointsLimits(i,2)];
                 GlobalIndivJointHist(i,:)=hist(Theta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
                 StaticIndivJointHist(i,:)=hist(StaticTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
-                MovIndivJointHist(i,:)=hist(MovTheta(:, i), xbins)./length(Theta)*100; %Histogram and normalize
+                MovHistCoef = abs(obj.Theta_d(find(MovIdx==1),i))*180/pi/bin_size*obj.dt*10; %Correction coefficients for movement histogram: corrected by their velocity to not penalize fast samples (which are less 'likely')
+                MovIndivJointHist(i,:)=whist(MovTheta(:, i), xbins, MovHistCoef)./length(find(MovIdx==1))*100; %Weighted histogram and normalize
             end
             obj.GlobalIndivJointHist=GlobalIndivJointHist;
             obj.StaticIndivJointHist=StaticIndivJointHist;
@@ -640,9 +875,7 @@ classdef Recording
 
   
         %% Per Movement Metrics
-
         function obj = calcPMROM(obj)
-            
         end
         
         function obj = calcPMPeakVel(obj)
@@ -650,18 +883,23 @@ classdef Recording
         
         function obj = calcPMRatioSwivel(obj)
         end
-        
+
         %% Drawing methods
         
         function obj = drawEverything(obj)
             drawTheta(obj, 0);
+            drawSimplifiedTheta(obj, 0);
             drawTheta_d(obj);
+            drawSimplifiedTheta_d(obj);
             drawHandTraj(obj, 0);
             drawHandTraj3d(obj);
             drawGlobalHandMaps(obj, 0);
             drawStaticHandMaps(obj, 0);
             drawMovHandMaps(obj, 0);
             drawJointHists(obj);
+            drawCircularJointHists(obj);
+            drawSimplifiedMov(obj);
+            drawHandPeaksVel(obj);
         end
         
         function h=drawTheta(obj, idx, varargin)
@@ -674,19 +912,21 @@ classdef Recording
                 axes(varargin{1});
             end
             hold on;
-            %Add movements area
-            yl=[min(min(Theta*180/pi)) max(max(Theta*180/pi))];
-            for i=1:length(t)
-                if(MovIdx(i)==1)
-                    line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+            %Add movements area if any
+            if(~isempty(MovIdx))
+                yl=[min(min(Theta*180/pi)) max(max(Theta*180/pi))];
+                for i=1:length(t)
+                    if(MovIdx(i)==1)
+                        line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+                    end
                 end
             end
-            
-            plot(t, Theta(:,1)*180/pi, 'r');
-            plot(t, Theta(:,2)*180/pi, 'g');
-            plot(t, Theta(:,3)*180/pi, 'b');
-            plot(t, Theta(:,4)*180/pi, 'y');
-            plot(t, Theta(:,5)*180/pi, 'm');
+
+            p(1)=plot(t, Theta(:,1)*180/pi, 'r');
+            p(2)=plot(t, Theta(:,2)*180/pi, 'g');
+            p(3)=plot(t, Theta(:,3)*180/pi, 'b');
+            p(4)=plot(t, Theta(:,4)*180/pi, 'y');
+            p(5)=plot(t, Theta(:,5)*180/pi, 'm');
             
             %Add a red line idx if needed
             if(idx>0)
@@ -694,8 +934,62 @@ classdef Recording
                 %Line should be of different style than actual plots !
                 line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
             end
-            title('Joint angles');
-            legend(['q1';'q2';'q3';'q4';'q5']);
+            title('Joint angles');xlabel('t(s)');
+            legend(p, obj.JointsNames);
+        end
+        
+        function h=drawSimplifiedTheta(obj, idx, varargin)
+            if(~isempty(obj.SimplifiedTheta))
+                SimplifiedTheta=obj.SimplifiedTheta;
+                t=obj.t;
+                MovIdx=obj.MovIdx;
+                if(isempty(varargin))
+                    h=figure();
+                else
+                    axes(varargin{1});
+                end
+                hold on;
+                %Add movements area if any
+                if(~isempty(MovIdx))
+                    yl=[min(min(SimplifiedTheta*180/pi)) max(max(SimplifiedTheta*180/pi))];
+                    for i=1:length(t)
+                        if(MovIdx(i)==1)
+                            line([t(i) t(i)], [yl(1) yl(2)], 'color', [0.8 0.8 0.8]) ;
+                        end
+                    end
+                end
+
+                p(1)=plot(t, SimplifiedTheta(:,1)*180/pi, 'r');
+                p(2)=plot(t, SimplifiedTheta(:,2)*180/pi, 'g');
+
+                title('Simplified joint angles');xlabel('t(s)');
+                legend(p, {'Shoulder';'Elbow'});
+
+                %Add a red line idx if needed
+                if(idx>0)
+                    yl=ylim;
+                    %Line should be of different style than actual plots !
+                    line([t(idx) t(idx)], [yl(1) yl(2)], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2);
+                end
+            end
+        end
+        
+        function h=drawSwivel(obj, varargin)
+            if(~isempty(obj.Swivel))
+                Swivel=obj.Swivel;
+                t=obj.t;
+                MovIdx=obj.MovIdx;
+                if(isempty(varargin))
+                    h=figure();
+                else
+                    axes(varargin{1});
+                end
+                hold on;
+
+                plot(t, Swivel*180/pi, 'r');
+
+                title('Swivel angle');xlabel('t(s)');
+            end
         end
         
         function h=drawTheta_d(obj, varargin)
@@ -712,8 +1006,23 @@ classdef Recording
             plot(t, Theta_d(:,3)*180/pi, 'b');
             plot(t, Theta_d(:,4)*180/pi, 'y');
             plot(t, Theta_d(:,5)*180/pi, 'm');
-            title('Joint velocities');
-            legend(['dq1';'dq2';'dq3';'dq4';'dq5']);
+            title('Joint velocities');xlabel('t(s)');
+            legend(obj.JointsNames);
+        end
+        
+        function h=drawSimplifiedTheta_d(obj, varargin)
+            SimplifiedTheta_d=obj.SimplifiedTheta_d;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            hold on;
+            plot(t, SimplifiedTheta_d(:,1)*180/pi, 'r');
+            plot(t, SimplifiedTheta_d(:,2)*180/pi, 'g');
+            title('Simplified joint velocities');xlabel('t(s)');
+            legend({'Shoulder';'Elbow'});
         end
         
         function h=drawHandTraj(obj, idx, varargin)
@@ -737,7 +1046,7 @@ classdef Recording
                 line([t(idx) t(idx)], [[yl(1) yl(2)]], 'color', [1 0 0], 'LineStyle', '--', 'LineWidth', 2) ;
             end
             
-            title('Hand trajectory');
+            title('Hand trajectory');xlabel('t(s)');
             legend(['x';'y';'z']);
         end
         function h=drawHandTraj3d(obj, varargin)
@@ -750,6 +1059,35 @@ classdef Recording
             end
             plot3(XHand(:,1), XHand(:,2), XHand(:,3), 'r');
             title('Hand trajectory');
+        end
+        function h=drawHandTangentialVel(obj, varargin)
+            XHand_tangential_d=obj.XHand_tangential_d;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            plot(t, XHand_tangential_d);ylabel('m.s^{-1}');xlabel('t(s)');
+            title('Hand tangential velocity');
+        end
+        %Draw tangential hand elocity and add peaks and average peak value
+        function h=drawHandPeaksVel(obj, varargin)
+            XHand_tangential_d=obj.XHand_tangential_d;
+            HandVelPeaks=obj.HandVelPeaks;
+            AvgPeakVel=obj.AvgPeakVel;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            plot(t, XHand_tangential_d, t(find(HandVelPeaks)), HandVelPeaks(find(HandVelPeaks)), 'or');
+            hold on;
+            plot([t(1) t(end)], [AvgPeakVel AvgPeakVel], 'g');
+            ylabel('m.s^{-1}');xlabel('t(s)');
+            title('Hand tangential velocity peaks');
+            legend({'Velocity', ['Peaks (N=' num2str(length(find(HandVelPeaks))) ')'], ['Avg peak (' num2str(AvgPeakVel) ')']});
         end
  
         function h=drawArm3d(obj, i, varargin)
@@ -771,18 +1109,21 @@ classdef Recording
         function h=drawGlobalHandMaps(obj, write)
            GlobalHandMap=obj.GlobalHandMap;
            L=obj.L;
-           %XHand=obj.XHand;
             
-           Resolution=0.02;
-           % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-           XEdges=[-0.6:Resolution:0.8];
-           YEdges=[-0.8:Resolution:0.8];
-           ZEdges=[-0.9:Resolution:0.6];
+           [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+           
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+            if(obj.Arm=='R')
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+            else
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+            end
             
            h=figure();
            colormap(hot);
@@ -825,18 +1166,21 @@ classdef Recording
         function h=drawStaticHandMaps(obj, write)
            StaticHandMap=obj.StaticHandMap;
            L=obj.L;
-           %XHand=obj.XHand;
-            
-           Resolution=0.02;
-           % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-           XEdges=[-0.6:Resolution:0.8];
-           YEdges=[-0.8:Resolution:0.8];
-           ZEdges=[-0.9:Resolution:0.6];
+           
+           [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+           
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+          if(obj.Arm=='R')
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           else
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           end
             
            h=figure();
            colormap(hot);
@@ -879,18 +1223,21 @@ classdef Recording
         function h=drawMovHandMaps(obj, write)
            MovHandMap=obj.MovHandMap;
            L=obj.L;
-           %XHand=obj.XHand;
             
-           Resolution=0.02;
-           % TO ADJUST BASED ON SEGMENTS LENGTHS ????
-           XEdges=[-0.6:Resolution:0.8];
-           YEdges=[-0.8:Resolution:0.8];
-           ZEdges=[-0.9:Resolution:0.6];
+           [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
+
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           if(obj.Arm=='R')
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           else
+               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           end
             
            h=figure();
            colormap(hot);
@@ -949,7 +1296,81 @@ classdef Recording
                 xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
                 bar(xbins, [GlobalIndivJointHist(i,:)' StaticIndivJointHist(i,:)' MovIndivJointHist(i,:)']);
                 title(JointsNames{i});
+                if(i==1)
+                    legend({'Global' 'Static', 'Movement'}, 'Location','NorthWest');
+                end
             end
+        end
+        
+        function h=drawCircularJointHists(obj, varargin)
+            GlobalIndivJointHist=obj.GlobalIndivJointHist;
+            StaticIndivJointHist=obj.StaticIndivJointHist;
+            MovIndivJointHist=obj.MovIndivJointHist;
+            JointsLimits=obj.JointsLimits;
+            JointsNames=obj.JointsNames;
+            HistNbBins=obj.HistNbBins;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            
+            %Polar (circular) histograms
+            for i=1:size(GlobalIndivJointHist, 1)
+                subplot(2,3,i);
+                xbins=[JointsLimits(i,1):(JointsLimits(i,2)-JointsLimits(i,1))/HistNbBins:JointsLimits(i,2)];
+                polar(xbins./180*pi, GlobalIndivJointHist(i,:), 'b');hold on
+                polar(xbins./180*pi, StaticIndivJointHist(i,:), 'g');
+                polar(xbins./180*pi, MovIndivJointHist(i,:), 'r');
+                title(obj.JointsNames{i});
+                if(i==1)
+                    legend({'Global' 'Static', 'Movement'}, 'Location','NorthWestOutside');
+                end
+            end
+        end
+
+        function h=drawSimplifiedMov(obj, varargin)
+            SimplifiedMovIdx=obj.SimplifiedMovIdx;
+            SimplifiedMovIdxIndep=obj.SimplifiedMovIdxIndep;
+            SimplifiedMovIdxSynchro=obj.SimplifiedMovIdxSynchro;
+            SimplifiedMovTime=obj.SimplifiedMovTime;
+            SimplifiedMovTimeEither=obj.SimplifiedMovTimeEither;
+            SimplifiedMovTimeIndep=obj.SimplifiedMovTimeIndep;
+            SimplifiedMovTimeSynchro=obj.SimplifiedMovTimeSynchro;
+            t=obj.t;
+            if(isempty(varargin))
+                h=figure();
+            else
+                axes(varargin{1});
+            end
+            hold on;
+            plot(t, SimplifiedMovIdx);
+            plot(t, SimplifiedMovIdxSynchro, 'r');
+            %plot(t, A.SimplifiedMovIdxIndep, 'y');
+            ylim([0 1.5]);
+            title('Simplified joint movements');xlabel('t(s)');
+            legend({'Shoulder movement', 'Elbow movement', 'Symchronized movement'});
+            %Display percentage values
+            percent_moving=SimplifiedMovTimeEither./t(end)*100;
+            percent_synchro=SimplifiedMovTimeSynchro/SimplifiedMovTimeEither*100;
+            text(5,1.2,{['Moving ' num2str(round(percent_moving)) '% of time']; ['with ' num2str(round(percent_synchro)) '% synchronized.']});
+        end
+
+        %% Export methods (to csv files)
+        
+        function obj = exportAllCSV(obj)
+            obj.exportHeatMaps();
+        end
+
+        function exportHeatMaps(obj)
+            StaticHandMapSide=obj.StaticHandMap{1};
+            StaticHandMapFront=obj.StaticHandMap{2};
+            MovHandMapSide=obj.MovHandMap{1};
+            MovHandMapFront=obj.MovHandMap{2};
+            csvwrite([obj.Filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
+            csvwrite([obj.Filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
+            csvwrite([obj.Filename '_MovHeatMapSide.csv'], MovHandMapSide);
+            csvwrite([obj.Filename '_MovHeatMapFront.csv'], MovHandMapFront);
         end
         
     end
