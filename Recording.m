@@ -8,7 +8,7 @@ classdef Recording
     end
     properties (GetAccess=public)
         %Constants
-        JointsLimits=[[-80 180];[-80 180];[-90 90];[0 160];[0 180]];
+        JointsLimits=[[-80 180];[-80 180];[-90 180];[0 160];[0 180]];
         JointsNames={'Shoulder abduction', 'Shoulder flexion', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
         HistNbBins;
         
@@ -297,7 +297,6 @@ classdef Recording
                 c_hs = quatrotate(q_h,eye(3))';
                 c_us = quatrotate(q_u,eye(3))';
 
-                
                 %Create ISB frames
                 if(obj.UsingChestSensor)
                     % Use chest sensor as reference one (only sensor
@@ -351,20 +350,12 @@ classdef Recording
             end
             if(isnan(angleData(end,1)))
                 non_nans_idx=find(isfinite(angleData(:,1)));
-                angleData(end,1)=angleData(non_nans_idx(end),1);
+                angleData(end, 1)=angleData(non_nans_idx(end), 1);
             end
             angleDataR = interp1(rawT,angleData,obj.t,'pchip'); %pchip gives more realistic interpolation than spline
             
-%             if(isnan(swivel(1)))
-%                 non_nans_idx=find(isfinite(swivel));
-%                 swivel(1)=swivel(non_nans_idx(1));
-%             end
-%             if(isnan(swivel(end)))
-%                 non_nans_idx=find(isfinite(swivel));
-%                 swivel(end)=swivel(non_nans_idx(end));
-%             end
-%             swivelR = interp1(rawT,swivel,obj.t,'spline');
-              swivelR = swivel;
+            %Swivel not interpolated, keep nans
+            swivelR = swivel;
 
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
@@ -375,18 +366,26 @@ classdef Recording
             %angles):
             angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
             angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
-            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1); %Axial rotation (internal -, external +, -90 to 90)
-            angleDataM(:,4:5) = angleDataR(:,4:5);   %Elbow flexion (0-160) and pronation (0-180)
+            angleDataM(:,4:5) = angleDataR(:,4:5); %Elbow flexion (0-160) and pronation (0-180)
+            %angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1); %Axial rotation (internal -, external +, -90 to 90)
+            %Axial rotation ignores planeofelevation when it's undefined
+            planelenans_idx = isnan(angleData(:,1));
+            planelenonnans_idx = ~isnan(angleData(:,1));
+            angleDataM(planelenans_idx,3) = angleDataR(planelenans_idx,3); %Axial rotation (internal -, external +, -90 to 90)
+            angleDataM(planelenonnans_idx,3) = angleDataR(planelenonnans_idx,3) + angleData(planelenonnans_idx,1); %Axial rotation (internal -, external +, -90 to 90)
+            
 
             %and simplified angles:
             SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
             SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
 
              figure();
-             subplot(2,1,1);hold on;
-             plot([angleData(:,4) angleData(:,5)]*180/pi);             
-             subplot(2,1,2);hold on;
-             plot(angleDataM(:,4)*180/pi, 'b');
+             subplot(3,1,1);hold on;
+             plot(obj.t, [angleData(:,1) angleData(:,3)]*180/pi);
+             subplot(3,1,2);hold on;
+             plot(obj.t, [angleDataR(:,1) angleDataR(:,3)]*180/pi);
+             subplot(3,1,3);hold on;
+             plot(obj.t, angleDataM(:,3)*180/pi);
 
             %Save to class members
             obj.Theta = angleDataM;
