@@ -1358,18 +1358,124 @@ classdef Recording
         %% Export methods (to csv files)
         
         function obj = exportAllCSV(obj)
+            obj.exportDashBoardData();
             obj.exportHeatMaps();
         end
 
         function exportHeatMaps(obj)
+            [pathstr,name,ext] = fileparts([obj.Filename]);
+            csv_base_filename=[pathstr '/CSV/' name '_' obj.Arm];
             StaticHandMapSide=obj.StaticHandMap{1};
             StaticHandMapFront=obj.StaticHandMap{2};
             MovHandMapSide=obj.MovHandMap{1};
             MovHandMapFront=obj.MovHandMap{2};
-            csvwrite([obj.Filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
-            csvwrite([obj.Filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
-            csvwrite([obj.Filename '_MovHeatMapSide.csv'], MovHandMapSide);
-            csvwrite([obj.Filename '_MovHeatMapFront.csv'], MovHandMapFront);
+            csvwrite([csv_base_filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
+            csvwrite([csv_base_filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
+            csvwrite([csv_base_filename '_MovHeatMapSide.csv'], MovHandMapSide);
+            csvwrite([csv_base_filename '_MovHeatMapFront.csv'], MovHandMapFront);
+        end
+        
+        
+        function exportDashBoardData(obj)
+            R=obj;
+            
+            % Calculate activity values of each minute
+            t = R.t;
+            MoveIdx = R.MovIdx;
+            theta = R.Theta;
+            dt = R.dt;
+            movements = R.Movements;
+
+            % Somehow calculate the start time: based on filename and
+            % arbitrary time for now
+            %TODO: RETRIEVE PROPER START TIME FROM RECORDING
+            [pathstr, name ,ext] = fileparts([R.Filename]);
+            start_time_vec=datevec([name(1:8) '143000'], 'yyyymmddHHMMSS');
+
+            % Indices of each minute start
+            minIndx = [10:60/dt:length(t)];
+            nbMin=length(minIndx)+1;
+
+            ActivityLevel = zeros(nbMin,1);
+            NumMov = zeros(nbMin,6)+ones(nbMin,1)*[0, 0.02,0.04,0.06,0.08,0.1]*5;
+            ROM = zeros(nbMin,10);
+
+
+            j = 1; % Movement Index
+            for i = 1:nbMin
+                if i == 1
+                    start = 1;
+                    stop = minIndx(1) -1;
+                elseif i >length(minIndx)
+                    start = minIndx(length(minIndx));
+                    stop = length(t);
+                else
+                    start = minIndx(i-1);
+                    stop = minIndx(i)-1;
+                end
+
+                ActivityLevel(i) = mean(MoveIdx(start:stop));
+
+                while (j <= length(movements) && movements(j).StartTime < (stop))
+                    NumMov(i,1) = NumMov(i,1)+1;
+                    NumMov(i,2:6) = NumMov(i,2:6) + movements(i).DoFPart;
+                    j = j+1;
+                end
+
+                % Calculate ROM for each Joint for each minute
+                ROM(i,:) = [max(theta(start:stop,:)), min(theta(start:stop,:))];
+                
+                %Time string
+                time_vec=start_time_vec;
+                time_vec(5)=time_vec(5)+i-1; %Increase minutes, if over 60, will be converted by datestr
+                time_str{i}=datestr(time_vec, 'yyyy_mm_ddT HH:MM:SS');
+            end
+            ROM = rad2deg(ROM);
+            
+            
+            %% Put everything into a CSV File
+                write_to=[pathstr '/CSV/' name '_' R.Arm '.csv'];
+            
+                % Headers
+                headers = {'Time',...
+                'Activity Level',...
+                'Total Movements',...
+                '# Shoulder Abd/Add',...
+                '# Shoulder Flex/Ext',...
+                '# Shoulder Axial Rot',...
+                '# Elbow Flex/Ext',...
+                '# Wrist Pro/Sup',...
+                'Max Shoulder Abd',...
+                'Max Shoulder Flex',...
+                'Max Shoulder Axial Rot',...
+                'Max Elbow Flex',...
+                'Max Wrist Pro',...
+                'Min Shoulder Add',...
+                'Min Shouder Ext',...
+                'Min Shoulder Axial Rot',...
+                'Min Elbow Ext',...
+                'Min Wrist Sup'};
+
+                %Write header line
+                fid = fopen(write_to, 'w');
+                for i=1:length(headers)-1
+                    fprintf(fid, [headers{i} ', ']);
+                end
+                fprintf(fid, [headers{i+1} '\n']);
+                
+                %Write data
+                for i=1:length(ActivityLevel)
+                    fprintf(fid, '%s, ', time_str{i});
+                    fprintf(fid, '%.3f, ', ActivityLevel(i));
+                    for k=1:size(NumMov, 2)
+                        fprintf(fid, '%.3f, ', NumMov(i,k));
+                    end
+                    for k=1:size(ROM, 2)-1
+                        fprintf(fid, '%.3f, ', ROM(i,k));
+                    end
+                    fprintf(fid, '%.3f\n', ROM(i,k+1));
+                end
+                fclose(fid);
         end
         
     end

@@ -348,3 +348,6 @@ function ExportCSV_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
     handles.CurrentRecording=handles.CurrentRecording.exportAllCSV();
+    
+    %Say it
+    msgbox(['Current recording exported in CSV folder !'], 'Export csv'); 
