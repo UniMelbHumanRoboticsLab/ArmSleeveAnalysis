@@ -107,7 +107,7 @@ classdef Recording
                    %Check number of sensors in the recording
                    hinfo = hdf5info(R.Filename);
                    nb_sensors=length(hinfo.GroupHierarchy.Groups);
-                   if(nb_sensors==5 || ForceChestSensor)
+                   if(ForceChestSensor) %nb_sensors==5 || ForceChestSensor)
                        disp('Using CHEST sensor');
                        R.UsingChestSensor=true;
                    else
@@ -234,8 +234,13 @@ classdef Recording
                 time = stime(RecordingStartTimeIndex(1):RecordingEndTimeIndex(1),:);
                 time = (double(time) - double(time(1))*ones(size(time)))/1e6;
                 
-                %Build data vector: [time q_u q_h q_s]    
-                data=[time.*1000 wdata edata sdata];
+                %Build data vector: [time q_u q_h q_s]
+                max_length=max([length(time) length(wdata) length(edata) length(sdata)]);
+                min_length=min([length(time) length(wdata) length(edata) length(sdata)]);
+                if(min_length~=max_length)
+                    disp(['WARNING: Sensor vectors of different sizes by ' num2str(max_length-min_length)]);
+                end
+                data=[time(1:min_length,:).*1000 wdata(1:min_length,:) edata(1:min_length,:) sdata(1:min_length,:)];
              
             % Take only data of interest
             [~, StartIndex] = min(abs(time-StartTime)); %Find closest time to start time
@@ -409,13 +414,13 @@ classdef Recording
         function obj = calcEverything(obj)
             obj=calcDoFVelocities(obj);
             obj=calcHandVelocity(obj);
-            obj=calcPeakVel(obj);
             obj=calcMove(obj);
             obj=calcMoveSimplified(obj);
             obj=calcCumDoF(obj);
             obj=calcROM(obj);
             obj=calcNumMov(obj);
             obj=calcMovTime(obj);
+            obj=calcPeakVel(obj);
             obj=createHandMaps(obj);
             obj=createJointMaps(obj);
             obj=createJointHist(obj);
@@ -767,7 +772,7 @@ classdef Recording
             
             %Find peaks with a velocity higher than the threshold and at
             %least separated by the time threshold between two movements
-            timebetweenpksasidx=obj.timeThresOffAll/obj.dt;
+            timebetweenpksasidx=round(obj.timeThresOffAll/obj.dt);
             [pks_val, pks_idx]=findpeaks(XHand_tangential_d, 'MinPeakHeight', obj.velThresHand, 'MinPeakDistance', timebetweenpksasidx);
             
             %Build a peak index where value is 0 when no peak and has peak
