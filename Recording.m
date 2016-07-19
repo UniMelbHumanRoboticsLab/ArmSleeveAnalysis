@@ -241,6 +241,8 @@ classdef Recording
                     disp(['WARNING: Sensor vectors of different sizes by ' num2str(max_length-min_length)]);
                 end
                 data=[time(1:min_length,:).*1000 wdata(1:min_length,:) edata(1:min_length,:) sdata(1:min_length,:)];
+                time=time(1:min_length);
+                
              
             % Take only data of interest
             [~, StartIndex] = min(abs(time-StartTime)); %Find closest time to start time
