@@ -8,7 +8,7 @@ classdef Recording
     end
     properties (GetAccess=public)
         %Constants
-        JointsLimits=[[-80 180];[-80 180];[-90 90];[0 160];[0 180]];
+        JointsLimits=[[-80 180];[-80 180];[-90 180];[0 160];[0 180]];
         JointsNames={'Shoulder abduction', 'Shoulder flexion', 'Shoulder internal rotation', 'Elbow flexion', 'Pronation'};
         HistNbBins;
         
@@ -297,7 +297,6 @@ classdef Recording
                 c_hs = quatrotate(q_h,eye(3))';
                 c_us = quatrotate(q_u,eye(3))';
 
-                
                 %Create ISB frames
                 if(obj.UsingChestSensor)
                     % Use chest sensor as reference one (only sensor
@@ -351,20 +350,12 @@ classdef Recording
             end
             if(isnan(angleData(end,1)))
                 non_nans_idx=find(isfinite(angleData(:,1)));
-                angleData(end,1)=angleData(non_nans_idx(end),1);
+                angleData(end, 1)=angleData(non_nans_idx(end), 1);
             end
             angleDataR = interp1(rawT,angleData,obj.t,'pchip'); %pchip gives more realistic interpolation than spline
             
-%             if(isnan(swivel(1)))
-%                 non_nans_idx=find(isfinite(swivel));
-%                 swivel(1)=swivel(non_nans_idx(1));
-%             end
-%             if(isnan(swivel(end)))
-%                 non_nans_idx=find(isfinite(swivel));
-%                 swivel(end)=swivel(non_nans_idx(end));
-%             end
-%             swivelR = interp1(rawT,swivel,obj.t,'spline');
-              swivelR = swivel;
+            %Swivel not interpolated, keep nans
+            swivelR = swivel;
 
             XShoulder = spline(rawT,XShoulder',obj.t);
             XElbow = spline(rawT,XElbow',obj.t);
@@ -375,18 +366,29 @@ classdef Recording
             %angles):
             angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
             angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
-            angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1); %Axial rotation (internal -, external +, -90 to 90)
-            angleDataM(:,4:5) = angleDataR(:,4:5);   %Elbow flexion (0-160) and pronation (0-180)
+            angleDataM(:,4:5) = angleDataR(:,4:5); %Elbow flexion (0-160) and pronation (0-180)
+            %angleDataM(:,3) = angleDataR(:,3) + angleDataR(:,1); %Axial rotation (internal -, external +, -90 to 90)
+            %Axial rotation ignores planeofelevation when it's undefined
+            planelenans_idx = isnan(angleData(:,1));
+            planelenonnans_idx = ~isnan(angleData(:,1));
+            angleDataM(planelenans_idx,3) = angleDataR(planelenans_idx,3); %Axial rotation (internal -, external +, -90 to 90)
+            angleDataM(planelenonnans_idx,3) = angleDataR(planelenonnans_idx,3) + angleData(planelenonnans_idx,1); %Axial rotation (internal -, external +, -90 to 90)
+            %Filter out extreme values of external rotation
+            angleDataM(find(abs(angleDataM(:,3))>pi),3)=nan;
+            nanx = isnan(angleDataM(:,3));
+            angleDataM(nanx,3) = interp1(obj.t(~nanx), angleDataM(~nanx,3), obj.t(nanx));
 
             %and simplified angles:
             SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
             SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
 
              figure();
-             subplot(2,1,1);hold on;
-             plot([angleData(:,4) angleData(:,5)]*180/pi);             
-             subplot(2,1,2);hold on;
-             plot(angleDataM(:,4)*180/pi, 'b');
+             subplot(3,1,1);hold on;
+             plot(obj.t, [angleData(:,1) angleData(:,3)]*180/pi);
+             subplot(3,1,2);hold on;
+             plot(obj.t, [angleDataR(:,1) angleDataR(:,3)]*180/pi);
+             subplot(3,1,3);hold on;
+             plot(obj.t, angleDataM(:,3)*180/pi);
 
             %Save to class members
             obj.Theta = angleDataM;
@@ -1359,18 +1361,123 @@ classdef Recording
         %% Export methods (to csv files)
         
         function obj = exportAllCSV(obj)
+            obj.exportDashBoardData();
             obj.exportHeatMaps();
         end
 
         function exportHeatMaps(obj)
+            [pathstr,name,ext] = fileparts([obj.Filename]);
+            csv_base_filename=[pathstr '/CSV/' name '_' obj.Arm];
             StaticHandMapSide=obj.StaticHandMap{1};
             StaticHandMapFront=obj.StaticHandMap{2};
             MovHandMapSide=obj.MovHandMap{1};
             MovHandMapFront=obj.MovHandMap{2};
-            csvwrite([obj.Filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
-            csvwrite([obj.Filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
-            csvwrite([obj.Filename '_MovHeatMapSide.csv'], MovHandMapSide);
-            csvwrite([obj.Filename '_MovHeatMapFront.csv'], MovHandMapFront);
+            csvwrite([csv_base_filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
+            csvwrite([csv_base_filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
+            csvwrite([csv_base_filename '_MovHeatMapSide.csv'], MovHandMapSide);
+            csvwrite([csv_base_filename '_MovHeatMapFront.csv'], MovHandMapFront);
+        end
+        
+        function exportDashBoardData(obj)
+            R=obj;
+            
+            % Calculate activity values of each minute
+            t = R.t;
+            MoveIdx = R.MovIdx;
+            theta = R.Theta;
+            dt = R.dt;
+            movements = R.Movements;
+
+            % Somehow calculate the start time: based on filename and
+            % arbitrary time for now
+            %TODO: RETRIEVE PROPER START TIME FROM RECORDING
+            [pathstr, name ,ext] = fileparts([R.Filename]);
+            start_time_vec=datevec([name(1:8) '143000'], 'yyyymmddHHMMSS');
+
+            % Indices of each minute start
+            minIndx = [10:60/dt:length(t)];
+            nbMin=length(minIndx)+1;
+
+            ActivityLevel = zeros(nbMin,1);
+            NumMov = zeros(nbMin,6)+ones(nbMin,1)*[0, 0.02,0.04,0.06,0.08,0.1]*5;
+            ROM = zeros(nbMin,10);
+
+
+            j = 1; % Movement Index
+            for i = 1:nbMin
+                if i == 1
+                    start = 1;
+                    stop = minIndx(1) -1;
+                elseif i >length(minIndx)
+                    start = minIndx(length(minIndx));
+                    stop = length(t);
+                else
+                    start = minIndx(i-1);
+                    stop = minIndx(i)-1;
+                end
+
+                ActivityLevel(i) = mean(MoveIdx(start:stop));
+
+                while (j <= length(movements) && movements(j).StartTime < (stop))
+                    NumMov(i,1) = NumMov(i,1)+1;
+                    NumMov(i,2:6) = NumMov(i,2:6) + movements(i).DoFPart;
+                    j = j+1;
+                end
+
+                % Calculate ROM for each Joint for each minute
+                ROM(i,:) = [max(theta(start:stop,:)), min(theta(start:stop,:))];
+                
+                %Time string
+                time_vec=start_time_vec;
+                time_vec(5)=time_vec(5)+i-1; %Increase minutes, if over 60, will be converted by datestr
+                time_str{i}=datestr(time_vec, 'yyyy_mm_ddT HH:MM:SS');
+            end
+            ROM = rad2deg(ROM);
+            
+            
+            %% Put everything into a CSV File
+                write_to=[pathstr '/CSV/' name '_' R.Arm '.csv'];
+            
+                % Headers
+                headers = {'Time',...
+                'Activity Level',...
+                'Total Movements',...
+                '# Shoulder Abd/Add',...
+                '# Shoulder Flex/Ext',...
+                '# Shoulder Axial Rot',...
+                '# Elbow Flex/Ext',...
+                '# Wrist Pro/Sup',...
+                'Max Shoulder Abd',...
+                'Max Shoulder Flex',...
+                'Max Shoulder Axial Rot',...
+                'Max Elbow Flex',...
+                'Max Wrist Pro',...
+                'Min Shoulder Add',...
+                'Min Shouder Ext',...
+                'Min Shoulder Axial Rot',...
+                'Min Elbow Ext',...
+                'Min Wrist Sup'};
+
+                %Write header line
+                fid = fopen(write_to, 'w');
+                for i=1:length(headers)-1
+                    fprintf(fid, [headers{i} ', ']);
+                end
+                fprintf(fid, [headers{i+1} '\n']);
+                
+                %Write data
+                for i=1:length(ActivityLevel)
+                    fprintf(fid, '%s, ', time_str{i});
+                    fprintf(fid, '%.3f, ', ActivityLevel(i));
+                    for k=1:size(NumMov, 2)
+                        fprintf(fid, '%.3f, ', NumMov(i,k));
+                    end
+                    for k=1:size(ROM, 2)-1
+                        fprintf(fid, '%.3f, ', ROM(i,k));
+                    end
+                    fprintf(fid, '%.3f\n', ROM(i,k+1));
+                end
+                fclose(fid);
         end
         
     end
