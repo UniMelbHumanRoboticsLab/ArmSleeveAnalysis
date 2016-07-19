@@ -373,7 +373,10 @@ classdef Recording
             planelenonnans_idx = ~isnan(angleData(:,1));
             angleDataM(planelenans_idx,3) = angleDataR(planelenans_idx,3); %Axial rotation (internal -, external +, -90 to 90)
             angleDataM(planelenonnans_idx,3) = angleDataR(planelenonnans_idx,3) + angleData(planelenonnans_idx,1); %Axial rotation (internal -, external +, -90 to 90)
-            
+            %Filter out extreme values of external rotation
+            angleDataM(find(abs(angleDataM(:,3))>pi),3)=nan;
+            nanx = isnan(angleDataM(:,3));
+            angleDataM(nanx,3) = interp1(obj.t(~nanx), angleDataM(~nanx,3), obj.t(nanx));
 
             %and simplified angles:
             SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
@@ -1374,7 +1377,6 @@ classdef Recording
             csvwrite([csv_base_filename '_MovHeatMapSide.csv'], MovHandMapSide);
             csvwrite([csv_base_filename '_MovHeatMapFront.csv'], MovHandMapFront);
         end
-        
         
         function exportDashBoardData(obj)
             R=obj;
