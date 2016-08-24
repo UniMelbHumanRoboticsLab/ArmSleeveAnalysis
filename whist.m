@@ -33,7 +33,9 @@ function N = whist(Y, X, W)
     %Count number of elements in each bin
     for i=1:length(Y)
        bin_idx=select_bin(Y(i));
-       N(bin_idx)=N(bin_idx)+W(i);
+       if (~isnan(bin_idx))
+            N(bin_idx)=N(bin_idx)+W(i);
+       end
     end
 
     
@@ -56,6 +58,11 @@ function N = whist(Y, X, W)
         if(v>edges(end))
             idx=length(edges)+1;
             return
+        end
+        
+        if (isnan(v))
+            idx = NaN
+            return;
         end
     end
 end

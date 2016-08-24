@@ -32,6 +32,7 @@ classdef Recording
         DurationSec
         NbPts
         t
+        MissingElbow
 
         % Processed Data
         Theta %Actual joint angles
@@ -83,87 +84,10 @@ classdef Recording
     
     methods
         %% Constructors
-        
-        function R = Recording(filename, StartTime, EndTime, fs, arm, varargin)
-            
-           % Save Filename into object
-           R.Filename = filename;
-           R.Arm=arm;
-           
-           %If specified force to use chest sensor for joint computation 
-           %even if shoulder sensors are available
-           if(isempty(varargin))
-               ForceChestSensor=false;
-           else
-               ForceChestSensor=varargin{1};
-           end
-           
-           %Test filename extension: if h5 assume Opal
-           %If csv assume custom
-           [~, ~, ext] = fileparts(R.Filename);
-           switch(ext)
-               case '.h5'
-                   disp(['Opal sensors file: ' R.Filename]);
-                   %Check number of sensors in the recording
-                   hinfo = hdf5info(R.Filename);
-                   nb_sensors=length(hinfo.GroupHierarchy.Groups);
-                   if(ForceChestSensor) %nb_sensors==5 || ForceChestSensor)
-                       disp('Using CHEST sensor');
-                       R.UsingChestSensor=true;
-                   else
-                       disp('Using SHOULDER sensors');
-                       R.UsingChestSensor=false;
-                   end
-                   R = RecordingH5(R, StartTime, EndTime); 
-               
-               case '.csv'
-                   disp(['Own sensors file: ' R.Filename]);
-                   R = RecordingCSV(R, StartTime, EndTime, fs);
-                   
-               otherwise
-                   disp(['UNKNOWN sensors file: ' R.Filename]);
-                   disp('ABORT');
-           end
-        end
-
-
-        % Filename, StartTime, Endtime, Sampling Frequency (nominal)
-        %for csv files (custom sensors)
-        function R = RecordingCSV(R, StartTime, EndTime, fs)
-            
-            % Arm segments lengths
-            R.L=[0.2 0.4 0.4]; %neck-shoulder, upper-arm, lower-arm
-            
-            % Load the data
-            data = csvread(R.Filename,19,0);
-
-            % Take only data of interest
-            StartIndex = 1;
-            EndIndex = 1;
-            for i = 1:length(data)
-                if data(i,1)/1000 < StartTime
-                    StartIndex = i;
-                end
-                if data(i,1)/1000 < EndTime
-                    EndIndex = i;
-                end
-            end
-            data = data(StartIndex:EndIndex,:);
-            
-            % Save the raw quaternion data
-            R.q = data;
-            
-            % Calculate an appropriate nominal dt
-            R.dt = 1/fs;
-            
-            % Calculate the DoF angles
-            R = calcDoFAngles(R);
-        end
-
 
         % Filename, StartTime, Endtime, Sampling Frequency (nominal)
         %for Opal h5 files with shoulder sensors
-        function R = RecordingH5(R, StartTime, EndTime)
+        function R = RecordingH5(R, StartTime, EndTime, varargin)
             
             % Arm segments lengths
             R.L=[0.2 0.4 0.4]; %neck-shoulder, upper-arm, lower-arm
@@ -177,15 +101,32 @@ classdef Recording
                 R_Elbow=5;
                 R_Wrist=6;
                 Chest=7;
+                
+                if (isempty(varargin))
+                    SwitchSensors = false;
+                else
+                    SwitchSensors = varargin{1};
+                end
 
-                %Opal sensors IDs
-                SensorsIds(Chest, :)='SI-002545';
-                SensorsIds(L_Shoulder, :)='SI-002500';
-                SensorsIds(L_Elbow, :)='SI-002532';
-                SensorsIds(L_Wrist, :)='SI-002575';
-                SensorsIds(R_Shoulder, :)='SI-002545';
-                SensorsIds(R_Elbow, :)='SI-002555';
-                SensorsIds(R_Wrist, :)='SI-002561';
+                % Load the data
+                if ~SwitchSensors
+                    %Opal sensors IDs
+                    SensorsIds(Chest, :)='SI-002545';
+                    SensorsIds(L_Shoulder, :)='SI-002500';
+                    SensorsIds(L_Elbow, :)='SI-002532';
+                    SensorsIds(L_Wrist, :)='SI-002575';
+                    SensorsIds(R_Shoulder, :)='SI-002545';
+                    SensorsIds(R_Elbow, :)='SI-002555';
+                    SensorsIds(R_Wrist, :)='SI-002561';
+                else
+                    SensorsIds(Chest, :)='SI-002545';
+                    SensorsIds(R_Shoulder, :)='SI-002500';
+                    SensorsIds(R_Elbow, :)='SI-002532';
+                    SensorsIds(R_Wrist, :)='SI-002575';
+                    SensorsIds(L_Shoulder, :)='SI-002545';
+                    SensorsIds(L_Elbow, :)='SI-002555';
+                    SensorsIds(L_Wrist, :)='SI-002561';
+                end
 
                 %Corresponding labels
                 SensorsLabels{Chest}='Chest';
@@ -263,12 +204,308 @@ classdef Recording
             R = calcDoFAngles(R);
         end
 
+        function R = Recording(filename, StartTime, EndTime, fs, arm, varargin)
+            
+           % Save Filename into object
+           R.Filename = filename;
+           R.Arm=arm;
+           
+           %If specified force to use chest sensor for joint computation 
+           %even if shoulder sensors are available
+           if(isempty(varargin))
+               ForceChestSensor=false;
+               R.MissingElbow = false;
+               SwitchSensors = false;
+           else
+               ForceChestSensor=varargin{1};
+               R.MissingElbow = varargin{2};
+               SwitchSensors = varargin{3};
+           end
+           
+           %Test filename extension: if h5 assume Opal
+           %If csv assume custom
+           [~, ~, ext] = fileparts(R.Filename);
+           switch(ext)
+               case '.h5'
+                   disp(['Opal sensors file: ' R.Filename]);
+                   %Check number of sensors in the recording
+                   hinfo = hdf5info(R.Filename);
+                   nb_sensors=length(hinfo.GroupHierarchy.Groups);
+                   if(ForceChestSensor) %nb_sensors==5 || ForceChestSensor)
+                       disp('Using CHEST sensor');
+                       R.UsingChestSensor=true;
+                   else
+                       disp('Using SHOULDER sensors');
+                       R.UsingChestSensor=false;
+                   end
+                   if (~R.MissingElbow)
+                       R = RecordingH5(R, StartTime, EndTime,SwitchSensors);
+                   else
+                       R = RecordingMissingElbow(R, StartTime, EndTime,SwitchSensors);
+                   end
+               
+               case '.csv'
+                   disp(['Own sensors file: ' R.Filename]);
+                   R = RecordingCSV(R, StartTime, EndTime, fs);
+                   
+               otherwise
+                   disp(['UNKNOWN sensors file: ' R.Filename]);
+                   disp('ABORT');
+           end
+        end
 
+      % Filename, StartTime, Endtime, Sampling Frequency (nominal)
+        %for Opal h5 files with shoulder sensors
+        function R =  RecordingMissingElbow(R, StartTime, EndTime, varargin)
+            % Arm segments lengths
+            R.L=[0.2 0.4 0.4]; %neck-shoulder, upper-arm, lower-arm
+            
+            %Convenience sensor index variables
+            L_Shoulder=1;
+            L_Elbow=2;
+            L_Wrist=3;
+            R_Shoulder=4;
+            R_Elbow=5;
+            R_Wrist=6;
+            Chest=7;       
+            
+            if (isempty(varargin))
+                SwitchSensors = false;
+            else
+                SwitchSensors = varargin{1};
+            end
+            
+            % Load the data
+            if ~SwitchSensors
+                %Opal sensors IDs
+                SensorsIds(Chest, :)='SI-002545';
+                SensorsIds(L_Shoulder, :)='SI-002500';
+                SensorsIds(L_Elbow, :)='SI-002532';
+                SensorsIds(L_Wrist, :)='SI-002575';
+                SensorsIds(R_Shoulder, :)='SI-002545';
+                SensorsIds(R_Elbow, :)='SI-002555';
+                SensorsIds(R_Wrist, :)='SI-002561';
+            else
+                SensorsIds(Chest, :)='SI-002545';
+                SensorsIds(R_Shoulder, :)='SI-002500';
+                SensorsIds(R_Elbow, :)='SI-002532';
+                SensorsIds(R_Wrist, :)='SI-002575';
+                SensorsIds(L_Shoulder, :)='SI-002545';
+                SensorsIds(L_Elbow, :)='SI-002555';
+                SensorsIds(L_Wrist, :)='SI-002561';
+            end
+            %Corresponding labels
+            SensorsLabels{Chest}='Chest';
+            SensorsLabels{L_Shoulder}='L Shoulder';
+            SensorsLabels{L_Elbow}='L_Elbow';
+            SensorsLabels{L_Wrist}='L_Wrist';
+            SensorsLabels{R_Shoulder}='R_Shoulder';
+            SensorsLabels{R_Elbow}='R_Elbow';
+            SensorsLabels{R_Wrist}='R_Wrist';
 
+            if(R.Arm=='R')
+                sdata = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Calibrated/Orientation'])'; 
+                wdata = h5read(R.Filename,['/' SensorsIds(R_Wrist, :) '/Calibrated/Orientation'])';
+                stime = h5read(R.Filename,['/' SensorsIds(R_Shoulder, :) '/Time']);
+                wtime = h5read(R.Filename,['/' SensorsIds(R_Wrist, :) '/Time']);
+            end
+
+            if(R.Arm=='L')
+                sdata = h5read(R.Filename,['/' SensorsIds(Chest, :) '/Calibrated/Orientation'])';
+                wdata = h5read(R.Filename,['/' SensorsIds(L_Wrist, :) '/Calibrated/Orientation'])';
+                stime = h5read(R.Filename,['/' SensorsIds(L_Shoulder, :) '/Time']);
+                wtime = h5read(R.Filename,['/' SensorsIds(L_Wrist, :) '/Time']);
+            end
+
+            RecordingStartTime = max([stime(1) wtime(1)]);
+            RecordingEndTime = min([stime(length(stime)) wtime(length(wtime))]);
+            RecordingStartTimeIndex = [find(stime==RecordingStartTime), find(wtime==RecordingStartTime)];
+            RecordingEndTimeIndex = [find(stime==RecordingEndTime),  find(wtime==RecordingEndTime)];
+
+            sdata = sdata(RecordingStartTimeIndex(1):RecordingEndTimeIndex(1),:);
+            wdata = wdata(RecordingStartTimeIndex(2):RecordingEndTimeIndex(2),:);
+
+            time = stime(RecordingStartTimeIndex(1):RecordingEndTimeIndex(1),:);
+            time = (double(time) - double(time(1))*ones(size(time)))/1e6;
+
+            %Build data vector: [time q_u q_h q_s]
+            max_length=max([length(time) length(wdata) length(sdata)]);
+            min_length=min([length(time) length(wdata) length(sdata)]);
+            if(min_length~=max_length)
+                disp(['WARNING: Sensor vectors of different sizes by ' num2str(max_length-min_length)]);
+            end
+            data=[time(1:min_length,:).*1000 wdata(1:min_length,:) sdata(1:min_length,:)];
+            time=time(1:min_length);
+                
+            % Take only data of interest
+            [~, StartIndex] = min(abs(time-StartTime)); %Find closest time to start time
+            [~, EndIndex] = min(abs(time-EndTime)); %Find closest time to end time
+            tsec=time(EndIndex)-time(StartIndex);
+            R.DurationMin=floor((time(EndIndex)-time(StartIndex))/60);
+            R.DurationSec=round(tsec-R.DurationMin*60);
+            disp(['Actual sequence length: ' num2str(R.DurationMin) 'min ' num2str(R.DurationSec) 's']);
+            data = data(StartIndex:EndIndex,:);
+            
+            % Save the raw quaternion data
+            R.q = data;
+            
+            % Calculate an appropriate nominal dt
+            R.dt = mean(time(2:end)-time(1:end-1));
+            
+            % Calculate the DoF angles
+            R = calcMissingElbow(R);
+        end
+        
+        % Filename, StartTime, Endtime, Sampling Frequency (nominal)
+        %for csv files (custom sensors)
+        function R = RecordingCSV(R, StartTime, EndTime, fs)
+            
+            % Arm segments lengths
+            R.L=[0.2 0.4 0.4]; %neck-shoulder, upper-arm, lower-arm
+            
+            % Load the data
+            data = csvread(R.Filename,19,0);
+
+            % Take only data of interest
+            StartIndex = 1;
+            EndIndex = 1;
+            for i = 1:length(data)
+                if data(i,1)/1000 < StartTime
+                    StartIndex = i;
+                end
+                if data(i,1)/1000 < EndTime
+                    EndIndex = i;
+                end
+            end
+            data = data(StartIndex:EndIndex,:);
+            
+            % Save the raw quaternion data
+            R.q = data;
+            
+            % Calculate an appropriate nominal dt
+            R.dt = 1/fs;
+            
+            % Calculate the DoF angles
+            R = calcDoFAngles(R);
+        end
+
+        
         %% Data Processing
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Calculate angles of the joints 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function obj = calcMissingElbow(obj)
+            q=obj.q;
+            angleData = zeros(length(obj.q), 5);
+            angleDataM = zeros(length(obj.q), 5);
+            XHand = zeros(length(obj.q), 3);
+            XShoulder = zeros(length(obj.q), 3);
+            XElbow = zeros(length(obj.q), 3);
+            SimplifiedTheta = zeros(length(obj.q), 2);
+            Swivel = zeros(length(obj.q), 1);
+            %segments lengths
+            l_s=obj.L(1);
+            l_h=obj.L(2);
+            l_u=obj.L(3);
+            
+            % Rotation 180 degrees about x
+            R = [1 0 0;
+                 0 -1 0;
+                 0 0 -1];
+
+            % Calculate the angles and hand position
+            h = waitbar(0, 'Calculating joint angles...');
+            
+            for i = 1:length(q)
+                if(mod(i,100)==1)
+                    waitbar(i/length(q));
+                end
+                q_u = quatinv(q(i,2:5));%/quatnorm(q(i,2:5)));
+                q_s = quatinv(q(i,6:9));%/quatnorm(q(i,10:13)));
+
+                % Creates frames for shoulder, humerus and ulna sensors
+                c_ss = quatrotate(q_s,eye(3))';
+                c_us = quatrotate(q_u,eye(3))';
+
+                %Create ISB frames
+                % Use shoulder sensor as reference
+                if(obj.Arm=='R')
+                    c_s = [c_ss(:,2) c_ss(:,3) -c_ss(:,1)];
+                else
+                    c_s = [c_ss(:,2) c_ss(:,3) c_ss(:,1)];
+                end
+                c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
+
+                %Compute joint positions
+                p_s = c_ss(:,1)*l_s;
+                p_h = [0 0 0];
+                
+                % Normalise so that the left shoulder is always pointed to
+                % positive Y
+                temp = [c_ss(1,1); c_ss(2,1)];
+                temp = temp/norm(temp);
+                
+                if(obj.Arm=='R')
+                    temp2 = inv([temp(1) temp(2); temp(2) -temp(1)])*[0; -1];
+                else
+                    temp2 = inv([temp(1) temp(2); temp(2) -temp(1)])*[0; 1];
+                end
+                
+                RotMat = [temp2(1) temp2(2) 0 ; -temp2(2) temp2(1) 0; 0 0 1];
+
+                XShoulder(i,:)= RotMat*p_s;
+                
+                % Use angleData to store the angle between the two sensors
+                % 
+                tempquat = quatmultiply(q_u, quatinv(q_s));
+                angleData(i,1) = tempquat(1);
+            end
+            
+            
+            waitbar(1,h,'Resampling data...')
+            
+            % Normalise to start of file
+            rawT = q(:,1)/1000 - q(1,1)/1000*ones(length(q),1);
+            
+            % Resample (and interpolate) the data:
+            obj.t = [rawT(1):obj.dt:rawT(end)];
+            
+            % Ensure that first and last values are not NaNs:
+            if(isnan(angleData(1,1)))
+                non_nans_idx=find(isfinite(angleData(:,1)));
+                angleData(1,1)=angleData(non_nans_idx(1),1);
+            end
+            if(isnan(angleData(end,1)))
+                non_nans_idx=find(isfinite(angleData(:,1)));
+                angleData(end, 1)=angleData(non_nans_idx(end), 1);
+            end
+            angleDataR = interp1(rawT,angleData,obj.t,'pchip'); %pchip gives more realistic interpolation than spline
+            
+            figure
+            plot(obj.t(1:length(obj.t)-1),abs(angleDataR(2:length(angleDataR),1)-angleDataR(1:length(angleDataR)-1,1)))
+            
+            %Swivel not interpolated, keep nans
+            swivelR = Swivel;
+
+            XShoulder = spline(rawT,XShoulder',obj.t);
+            XElbow = spline(rawT,XElbow',obj.t);
+            XHand = spline(rawT,XHand',obj.t);
+            
+            %and simplified angles:
+            SimplifiedTheta(:,1) = angleDataR(:,1); 
+
+            %Save to class members
+            obj.Theta = angleDataM;
+            obj.XShoulder = XShoulder';
+            obj.XElbow = XElbow';
+            obj.XHand = XHand';
+            obj.SimplifiedTheta = SimplifiedTheta;
+            obj.Swivel = swivelR;
+            obj.NbPts = length(obj.XHand);
+
+            close(h);
+        end
+        
         function obj = calcDoFAngles(obj)
             q=obj.q;
             angleData = zeros(length(obj.q), 5);
@@ -321,12 +558,26 @@ classdef Recording
                 c_u = [-c_us(:,3) -c_us(:,1) c_us(:,2)];
 
                 %Compute joint positions
-                p_s = c_s(:,3)*l_s;
+                p_s = c_ss(:,1)*l_s;
                 p_e =  p_s - c_h(:,2)*l_h;
                 p_h = p_e - c_u(:,2)*l_u;
-                XShoulder(i,:)=p_s;
-                XElbow(i,:)=p_e;
-                XHand(i,:)=p_h;
+                
+                % Normalise so that the left shoulder is always pointed to
+                % positive Y
+                temp = [c_ss(1,1); c_ss(2,1)];
+                temp = temp/norm(temp);
+                
+                if(obj.Arm=='R')
+                    temp2 = inv([temp(1) temp(2); temp(2) -temp(1)])*[0; -1];
+                else
+                    temp2 = inv([temp(1) temp(2); temp(2) -temp(1)])*[0; 1];
+                end
+                
+                RotMat = [temp2(1) temp2(2) 0 ; -temp2(2) temp2(1) 0; 0 0 1];
+
+                XShoulder(i,:)= RotMat*p_s;
+                XElbow(i,:)=RotMat*p_e;
+                XHand(i,:)=RotMat*p_h;
 
                 % Calculate Joint Angles (as per ISB definition)
                 [p, e, a] = shoulderAngles(c_s, c_h, obj.Arm);
@@ -371,6 +622,8 @@ classdef Recording
 
             %Create actual joint angles (abduction, flexion etc... from ISB
             %angles):
+            angleDataM = zeros(length(obj.t), 5);
+            
             angleDataM(:,1) = -angleDataR(:,2).*cos(angleDataR(:,1)); %Abduction/adduction (abduction external, -80 to 180)
             angleDataM(:,2) = -angleDataR(:,2).*sin(angleDataR(:,1)); %Flexion/extension (flexion forward, extension backward, -80 to 180)
             angleDataM(:,4:5) = angleDataR(:,4:5); %Elbow flexion (0-160) and pronation (0-180)
@@ -385,13 +638,15 @@ classdef Recording
             nanx = isnan(angleDataM(:,3));
             angleDataM(nanx,3) = interp1(obj.t(~nanx), angleDataM(~nanx,3), obj.t(nanx));
 
-            %and simplified angles:
+            %and simplified angles:           
+            SimplifiedTheta = zeros(length(obj.t), 2);
+
             SimplifiedTheta(:,1) = -angleDataR(:,2);  %Elevation: away from body
             SimplifiedTheta(:,2) = angleDataR(:,4);  %Elbow
 
              figure();
              subplot(3,1,1);hold on;
-             plot(obj.t, [angleData(:,1) angleData(:,3)]*180/pi);
+             plot(rawT, [angleData(:,1) angleData(:,3)]*180/pi);
              subplot(3,1,2);hold on;
              plot(obj.t, [angleDataR(:,1) angleDataR(:,3)]*180/pi);
              subplot(3,1,3);hold on;
@@ -409,9 +664,6 @@ classdef Recording
             close(h);
         end
 
-
-        
-
         %% Global Metrics
         function obj = calcEverything(obj)
             obj=calcDoFVelocities(obj);
@@ -426,7 +678,7 @@ classdef Recording
             obj=createHandMaps(obj);
             obj=createJointMaps(obj);
             obj=createJointHist(obj);
-            obj=calcJointsSynchronization(obj);
+            %obj=calcJointsSynchronization(obj);
         end
         
         
@@ -646,11 +898,14 @@ classdef Recording
                 end
             end
             
-            for i = 1:length(Movements)
-                Movements(i).DoFPart = zeros(1,5);
-                for j = 1:5
-                    if sum(DoFMove(Movements(i).StartTime:Movements(i).StopTime,j)) >0
-                        Movements(i).DoFPart(j) = 1;
+            
+            if sum(movement) >0
+                for i = 1:length(Movements)
+                    Movements(i).DoFPart = zeros(1,5);
+                    for j = 1:5
+                        if sum(DoFMove(Movements(i).StartTime:Movements(i).StopTime,j)) >0
+                            Movements(i).DoFPart(j) = 1;
+                        end
                     end
                 end
             end
@@ -660,8 +915,122 @@ classdef Recording
             %TODO: WHAT IS movement: A KIND OF GLOBAL MOVEMENT INDEX ???
             obj.MovIdxPerJoint = DoFMove;
             obj.MovIdx = DoFMove(:,1)|DoFMove(:,2)|DoFMove(:,3)|DoFMove(:,4);
+            if sum(movement) >0
+                obj.Movements = Movements;
+            else
+                obj.Movements = {};
+            end
+        end
+        
+        
+        function obj = calcMoveMissingElbow(obj)
+            theta_dot = obj.SimplifiedTheta_d;
+            f = 1/obj.dt;
+            
+            obj=obj.setMovThresholds();
+
+            
+            timeThresOn=obj.timeThresOn;
+            timeThresOff=obj.timeThresOff;
+            timeThresOnAll=obj.timeThresOnAll;
+            timeThresOffAll=obj.timeThresOffAll;
+            
+            velThresAll = 10;
+            
+           % Filter the data
+            Fs = f;    % Nominal Sampling Rate
+            Fc = 10;    % Cutoff frequency for filter
+            [b,a] = butter(5,Fc/Fs);
+            filtSimplifiedTheta_d = filter(b,a,theta_dot);
+
+            % Parameters
+            % For each Joint
+            obj=obj.setMovThresholds();
+            obj.velThres = 15;
+            
+            % Calculate based on the sum of movements
+            sampleThresOnAll = floor(timeThresOnAll*f)
+            sampleThresOffAll = floor(timeThresOffAll*f)
+
+            totVel = filtSimplifiedTheta_d;   
+                        
+            flagonTot = 0;
+            flagoffTot = 0;
+            movement = zeros(length(filtSimplifiedTheta_d), 1);
+            for i = 1:length(filtSimplifiedTheta_d)
+                if abs(totVel(i)*180/pi) > velThresAll
+                    if flagonTot > sampleThresOnAll
+                        movement(i) = 1;
+                        flagonTot = flagonTot + 1;
+                        flagoffTot = 0;
+                    elseif flagonTot == sampleThresOnAll
+                        movement(i-sampleThresOnAll+1:i) = ones(sampleThresOnAll,1);      
+                        flagonTot  = flagonTot + 1;
+                        flagoffTot = 0;
+                    else 
+                        flagonTot = flagonTot + 1;
+                    end
+                else               
+                    if flagonTot > sampleThresOnAll
+                        if flagoffTot < sampleThresOffAll
+                            movement(i) = 1;
+                            flagoffTot = flagoffTot + 1;
+                            flagonTot = flagonTot + 1;
+
+                        elseif flagoffTot == sampleThresOffAll
+                            movement(i-sampleThresOffAll+1:i) = zeros(sampleThresOffAll,1); 
+
+                            flagonTot = 0;
+                            flagoffTot = flagoffTot + 1;
+                        end
+                    else
+                        flagonTot = 0;
+                        flagoffTot = 0;
+                    end
+                end
+            end
+            
+            sum(movement)
+            
+            % Use movement as the method for determining a movement, and
+            % moving as a method for determining whether each DoF is
+            % moving.
+            inMove = 0;
+            numMov = 0;
+            
+            
+            % Create Movement Structure
+            for i = 1:length(movement)
+                if inMove == 1
+                    if movement(i) == 0
+                        inMove = 0;
+                        Movements(numMov).StopTime = i;
+                    end
+                else
+                    if movement(i) > 0
+                        numMov = numMov+1;
+                        s = struct(...
+                        'IndROM', [],...
+                        'PeakVel', [],...
+                        'RatioSwivel', [],...
+                        'StartTime', -1,...
+                        'StopTime', -1,....
+                        'DoFPart',[]);
+                        Movements(numMov) = s;
+                        Movements(numMov).StartTime = i;
+                        inMove = 1;
+                    end
+                end
+            end
+            
+
+            % Now fill out the structure indicating whether a movement is
+            % occuring at any particular point in time
+            %TODO: WHAT IS movement: A KIND OF GLOBAL MOVEMENT INDEX ???
+            obj.MovIdx = movement;
             obj.Movements = Movements;
         end
+        
         
         function obj = calcMoveSimplified(obj)
             theta_dot = obj.SimplifiedTheta_d;
@@ -789,16 +1158,12 @@ classdef Recording
         
         function [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj)%RESOLUTION as a parameter ?
             L=obj.L; % Neck-Should, UA, LA
-
-            Resolution=0.02;
+            
             %Center at neck point
-            XEdges=[-(L(2)+L(3)):Resolution:L(2)+L(3)]; %X positive forward
-            if(obj.Arm=='R')
-                YEdges=[-(L(2)+L(3)+L(1)):Resolution:(L(2)+L(3)-L(1))]; %Y positive subject left
-            else
-                YEdges=[-(L(2)+L(3)-L(1)):Resolution:(L(2)+L(3)+L(1))]; %Y positive subject left
-            end
-            ZEdges=[-(L(2)+L(3)):Resolution:L(2)+L(3)]; %Z positive up
+            Resolution = (L(2)+L(3)+L(1))/40;            
+            XEdges=[-(L(1)+L(2)+L(3)):Resolution:L(1)+L(2)+L(3)];
+            YEdges=[-(L(2)+L(3)+L(1)):Resolution:(L(2)+L(3)+L(1))];
+            ZEdges=[-(L(2)+L(3)+L(1)+L(1)/2):Resolution:L(2)+L(3)+L(1)-L(1)/2]; %Z positive up
         end
         
         function obj = createHandMaps(obj)
@@ -923,6 +1288,7 @@ classdef Recording
             hold on;
             %Add movements area if any
             if(~isempty(MovIdx))
+           
                 yl=[min(min(Theta*180/pi)) max(max(Theta*180/pi))];
                 for i=1:length(t)
                     if(MovIdx(i)==1)
@@ -1120,19 +1486,16 @@ classdef Recording
            L=obj.L;
             
            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
-           
+            
            %Where is (0,0,0) in the edges ? Z has to be inverted
-            if(obj.Arm=='R')
-               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-            else
-               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-            end
+           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ShouldCoordR=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ElbowCoordR=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           WristCoordR=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           
+           ShouldCoordL=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ElbowCoordL=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           WristCoordL=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
             
            h=figure();
            colormap(hot);
@@ -1140,8 +1503,12 @@ classdef Recording
                 subplot(1,2,1);
                 image(GlobalHandMap{1},'CDataMapping','scaled');%Transpose to get Z on vertical
                 %plot neck point, elbow and wrist:
-                hold on; plot(NeckCoord(1), NeckCoord(3), 'w+');plot(ShouldCoord(1), ShouldCoord(3), 'w+');plot(ElbowCoord(1), ElbowCoord(3), 'w+');plot(WristCoord(1), WristCoord(3), 'w+');
-                line([NeckCoord(1) ShouldCoord(1) ElbowCoord(1) WristCoord(1)], [NeckCoord(3) ShouldCoord(3) ElbowCoord(3) WristCoord(3)], 'Color', 'w');
+                hold on; plot(NeckCoord(1), NeckCoord(3), 'w+');plot(ShouldCoordR(1), ShouldCoordR(3), 'w+');plot(ElbowCoordR(1), ElbowCoordR(3), 'w+');plot(WristCoordR(1), WristCoordR(3), 'w+');
+                line([NeckCoord(1) ShouldCoordR(1) ElbowCoordR(1) WristCoordR(1)], [NeckCoord(3) ShouldCoordR(3) ElbowCoordR(3) WristCoordR(3)], 'Color', 'w');
+                
+                plot(ShouldCoordL(1), ShouldCoordL(3), 'r+');plot(ElbowCoordL(1), ElbowCoordL(3), 'w+');plot(WristCoordL(1), WristCoordL(3), 'r+');
+                line([NeckCoord(1) ShouldCoordL(1) ElbowCoordL(1) WristCoordL(1)], [NeckCoordL(3) ShouldCoordL(3) ElbowCoordL(3) WristCoordL(3)], 'Color', 'r');
+
                 %plot head: circle + eyes
                 headPos=[NeckCoord(1)-3.5 NeckCoord(3)-9 7 8];
                 rectangle('Position',headPos,'Curvature',[1 1], 'EdgeColor', 'w');%head
@@ -1154,9 +1521,13 @@ classdef Recording
            %Coronal: Histogram x,y: front view, x positive forward, y side
                 subplot(1,2,2);
                 image(GlobalHandMap{2},'CDataMapping','scaled');
-                %plot neck point, elbow and wrist:
-                hold on; plot(NeckCoord(2), NeckCoord(3), 'w+');plot(ShouldCoord(2), ShouldCoord(3), 'w+');plot(ElbowCoord(2), ElbowCoord(3), 'w+');plot(WristCoord(2), WristCoord(3), 'w+');
-                line([NeckCoord(2) ShouldCoord(2) ElbowCoord(2) WristCoord(2)], [NeckCoord(3) ShouldCoord(3) ElbowCoord(3) WristCoord(3)], 'Color', 'w');
+                %plot neck point, elbow and wrist: 
+                hold on; plot(NeckCoord(2), NeckCoord(3), 'w+');plot(ShouldCoordR(2), ShouldCoordR(3), 'w+');plot(ElbowCoordR(2), ElbowCoordR(3), 'w+');plot(WristCoordR(2), WristCoordR(3), 'w+');
+                line([NeckCoord(2) ShouldCoordR(2) ElbowCoordR(2) WristCoordR(2)], [NeckCoord(3) ShouldCoordR(3) ElbowCoordR(3) WristCoordR(3)], 'Color', 'w');
+                
+                plot(ShouldCoordL(2), ShouldCoordL(3), 'r+');plot(ElbowCoordL(2), ElbowCoordL(3), 'r+');plot(WristCoordL(2), WristCoordL(3), 'r+');
+                line([NeckCoord(2) ShouldCoordL(2) ElbowCoordL(2) WristCoordL(2)], [NeckCoordL(3) ShouldCoordL(3) ElbowCoordL(3) WristCoordL(3)], 'Color', 'r');
+
                 %plot head: circle + eyes
                 headPos=[NeckCoord(2)-4 NeckCoord(3)-9 8 8];
                 rectangle('Position',headPos,'Curvature',[1 1], 'EdgeColor', 'w');%head
@@ -1179,26 +1550,28 @@ classdef Recording
            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
            
            %Where is (0,0,0) in the edges ? Z has to be inverted
-          if(obj.Arm=='R')
-               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           else
-               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           end
+           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ShouldCoordR=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ElbowCoordR=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           WristCoordR=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           
+           ShouldCoordL=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ElbowCoordL=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           WristCoordL=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
             
            h=figure();
            colormap(hot);
            %Sagittal: Histogram x,z: side view, x positive forward, z positive up
                 subplot(1,2,1);
                 image(StaticHandMap{1},'CDataMapping','scaled');%Transpose to get Z on vertical
-                %plot neck point, elbow and wrist:
-                hold on; plot(NeckCoord(1), NeckCoord(3), 'w+');plot(ShouldCoord(1), ShouldCoord(3), 'w+');plot(ElbowCoord(1), ElbowCoord(3), 'w+');plot(WristCoord(1), WristCoord(3), 'w+');
-                line([NeckCoord(1) ShouldCoord(1) ElbowCoord(1) WristCoord(1)], [NeckCoord(3) ShouldCoord(3) ElbowCoord(3) WristCoord(3)], 'Color', 'w');
+                %plot neck point, elbow and wrist:                
+                hold on; plot(NeckCoord(1), NeckCoord(3), 'w+');plot(ShouldCoordR(1), ShouldCoordR(3), 'w+');plot(ElbowCoordR(1), ElbowCoordR(3), 'w+');plot(WristCoordR(1), WristCoordR(3), 'w+');
+                line([NeckCoord(1) ShouldCoordR(1) ElbowCoordR(1) WristCoordR(1)], [NeckCoord(3) ShouldCoordR(3) ElbowCoordR(3) WristCoordR(3)], 'Color', 'w');
+                
+                plot(ShouldCoordL(1), ShouldCoordL(3), 'r+');plot(ElbowCoordL(1), ElbowCoordL(3), 'w+');plot(WristCoordL(1), WristCoordL(3), 'r+');
+                line([NeckCoord(1) ShouldCoordL(1) ElbowCoordL(1) WristCoordL(1)], [NeckCoord(3) ShouldCoordL(3) ElbowCoordL(3) WristCoordL(3)], 'Color', 'r');
+
+                
                 %plot head: circle + eyes
                 headPos=[NeckCoord(1)-3.5 NeckCoord(3)-9 7 8];
                 rectangle('Position',headPos,'Curvature',[1 1], 'EdgeColor', 'w');%head
@@ -1207,13 +1580,16 @@ classdef Recording
                 if(write)
                     %imwrite(StaticHandMap{1}, 'StaticHandHeatMapSagittal.png');
                 end
-            
            %Coronal: Histogram x,y: front view, x positive forward, y side
                 subplot(1,2,2);
                 image(StaticHandMap{2},'CDataMapping','scaled');
-                %plot neck point, elbow and wrist:
-                hold on; plot(NeckCoord(2), NeckCoord(3), 'w+');plot(ShouldCoord(2), ShouldCoord(3), 'w+');plot(ElbowCoord(2), ElbowCoord(3), 'w+');plot(WristCoord(2), WristCoord(3), 'w+');
-                line([NeckCoord(2) ShouldCoord(2) ElbowCoord(2) WristCoord(2)], [NeckCoord(3) ShouldCoord(3) ElbowCoord(3) WristCoord(3)], 'Color', 'w');
+                %plot neck point, elbow and wrist:                
+                hold on; plot(NeckCoord(2), NeckCoord(3), 'w+');plot(ShouldCoordR(2), ShouldCoordR(3), 'w+');plot(ElbowCoordR(2), ElbowCoordR(3), 'w+');plot(WristCoordR(2), WristCoordR(3), 'w+');
+                line([NeckCoord(2) ShouldCoordR(2) ElbowCoordR(2) WristCoordR(2)], [NeckCoord(3) ShouldCoordR(3) ElbowCoordR(3) WristCoordR(3)], 'Color', 'w');
+                
+                plot(ShouldCoordL(2), ShouldCoordL(3), 'r+');plot(ElbowCoordL(2), ElbowCoordL(3), 'r+');plot(WristCoordL(2), WristCoordL(3), 'r+');
+                line([NeckCoord(2) ShouldCoordL(2) ElbowCoordL(2) WristCoordL(2)], [NeckCoord(3) ShouldCoordL(3) ElbowCoordL(3) WristCoordL(3)], 'Color', 'r');
+
                 %plot head: circle + eyes
                 headPos=[NeckCoord(2)-4 NeckCoord(3)-9 8 8];
                 rectangle('Position',headPos,'Curvature',[1 1], 'EdgeColor', 'w');%head
@@ -1222,7 +1598,6 @@ classdef Recording
                 if(write)
                     %imwrite(StaticHandMap{2}, 'StaticHandHeatMapCoronal.png');
                 end
-
                 suptitle('Static postures only');
                 
                 if(write)
@@ -1236,26 +1611,27 @@ classdef Recording
            [XEdges, YEdges, ZEdges]=DefineHandHistProperties(obj);
 
            %Where is (0,0,0) in the edges ? Z has to be inverted
-           if(obj.Arm=='R')
-               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           else
-               NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ShouldCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               ElbowCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-               WristCoord=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
-           end
-            
+           NeckCoord=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (0-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ShouldCoordR=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ElbowCoordR=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           WristCoordR=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (-L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           
+           ShouldCoordL=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (0-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           ElbowCoordL=[(0-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+           WristCoordL=[(L(3)-min(XEdges))*(length(XEdges)/(max(XEdges)-min(XEdges))) (L(1)-min(YEdges))*(length(YEdges)/(max(YEdges)-min(YEdges))) (-L(2)-max(ZEdges))*(length(ZEdges)/(min(ZEdges)-max(ZEdges)))];
+             
            h=figure();
            colormap(hot);
            %Sagittal: Histogram x,z: side view, x positive forward, z positive up
                 subplot(1,2,1);
                 image(MovHandMap{1},'CDataMapping','scaled');%Transpose to get Z on vertical
                 %plot neck point, elbow and wrist:
-                hold on; plot(NeckCoord(1), NeckCoord(3), 'w+');plot(ShouldCoord(1), ShouldCoord(3), 'w+');plot(ElbowCoord(1), ElbowCoord(3), 'w+');plot(WristCoord(1), WristCoord(3), 'w+');
-                line([NeckCoord(1) ShouldCoord(1) ElbowCoord(1) WristCoord(1)], [NeckCoord(3) ShouldCoord(3) ElbowCoord(3) WristCoord(3)], 'Color', 'w');
+                hold on; plot(NeckCoord(1), NeckCoord(3), 'w+');plot(ShouldCoordR(1), ShouldCoordR(3), 'w+');plot(ElbowCoordR(1), ElbowCoordR(3), 'w+');plot(WristCoordR(1), WristCoordR(3), 'w+');
+                line([NeckCoord(1) ShouldCoordR(1) ElbowCoordR(1) WristCoordR(1)], [NeckCoord(3) ShouldCoordR(3) ElbowCoordR(3) WristCoordR(3)], 'Color', 'w');
+                
+                plot(ShouldCoordL(1), ShouldCoordL(3), 'r+');plot(ElbowCoordL(1), ElbowCoordL(3), 'w+');plot(WristCoordL(1), WristCoordL(3), 'r+');
+                line([NeckCoord(1) ShouldCoordL(1) ElbowCoordL(1) WristCoordL(1)], [NeckCoord(3) ShouldCoordL(3) ElbowCoordL(3) WristCoordL(3)], 'Color', 'r');
+
                 %plot head: circle + eyes
                 headPos=[NeckCoord(1)-3.5 NeckCoord(3)-9 7 8];
                 rectangle('Position',headPos,'Curvature',[1 1], 'EdgeColor', 'w');%head
@@ -1264,13 +1640,16 @@ classdef Recording
                 if(write)
                     %imwrite(MovHandMap{1}, 'MovHandHeatMapSagittal.png');
                 end
-            
            %Coronal: Histogram x,y: front view, x positive forward, y side
                 subplot(1,2,2);
                 image(MovHandMap{2},'CDataMapping','scaled');
-                %plot neck point, elbow and wrist:
-                hold on; plot(NeckCoord(2), NeckCoord(3), 'w+');plot(ShouldCoord(2), ShouldCoord(3), 'w+');plot(ElbowCoord(2), ElbowCoord(3), 'w+');plot(WristCoord(2), WristCoord(3), 'w+');
-                line([NeckCoord(2) ShouldCoord(2) ElbowCoord(2) WristCoord(2)], [NeckCoord(3) ShouldCoord(3) ElbowCoord(3) WristCoord(3)], 'Color', 'w');
+                %plot neck point, elbow and wrist:                                
+                hold on; plot(NeckCoord(2), NeckCoord(3), 'w+');plot(ShouldCoordR(2), ShouldCoordR(3), 'w+');plot(ElbowCoordR(2), ElbowCoordR(3), 'w+');plot(WristCoordR(2), WristCoordR(3), 'w+');
+                line([NeckCoord(2) ShouldCoordR(2) ElbowCoordR(2) WristCoordR(2)], [NeckCoord(3) ShouldCoordR(3) ElbowCoordR(3) WristCoordR(3)], 'Color', 'w');
+                
+                plot(ShouldCoordL(2), ShouldCoordL(3), 'r+');plot(ElbowCoordL(2), ElbowCoordL(3), 'r+');plot(WristCoordL(2), WristCoordL(3), 'r+');
+                line([NeckCoord(2) ShouldCoordL(2) ElbowCoordL(2) WristCoordL(2)], [NeckCoord(3) ShouldCoordL(3) ElbowCoordL(3) WristCoordL(3)], 'Color', 'r');
+                
                 %plot head: circle + eyes
                 headPos=[NeckCoord(2)-4 NeckCoord(3)-9 8 8];
                 rectangle('Position',headPos,'Curvature',[1 1], 'EdgeColor', 'w');%head
@@ -1279,7 +1658,6 @@ classdef Recording
                 if(write)
                     %imwrite(MovHandMap{2}, 'MovHandHeatMapCoronal.png');
                 end
-
                 suptitle('Movement postures only');
                 
                 if(write)
@@ -1379,10 +1757,12 @@ classdef Recording
             StaticHandMapFront=obj.StaticHandMap{2};
             MovHandMapSide=obj.MovHandMap{1};
             MovHandMapFront=obj.MovHandMap{2};
-            csvwrite([csv_base_filename '_StaticHeatMapSide.csv'], StaticHandMapSide);
-            csvwrite([csv_base_filename '_StaticHeatMapFront.csv'], StaticHandMapFront);
-            csvwrite([csv_base_filename '_MovHeatMapSide.csv'], MovHandMapSide);
-            csvwrite([csv_base_filename '_MovHeatMapFront.csv'], MovHandMapFront);
+            size(StaticHandMapSide)
+            size(StaticHandMapFront)
+            csvwrite([csv_base_filename '_StaticHeatMapSide.csv'], [[0:79] ; StaticHandMapSide]);
+            csvwrite([csv_base_filename '_StaticHeatMapFront.csv'], [[0:79] ;StaticHandMapFront]);
+            csvwrite([csv_base_filename '_MovHeatMapSide.csv'], [[0:79] ;MovHandMapSide]);
+            csvwrite([csv_base_filename '_MovHeatMapFront.csv'],[[0:79] ; MovHandMapFront]);
         end
         
         function exportDashBoardData(obj)
@@ -1406,7 +1786,7 @@ classdef Recording
             nbMin=length(minIndx)+1;
 
             ActivityLevel = zeros(nbMin,1);
-            NumMov = zeros(nbMin,6)+ones(nbMin,1)*[0, 0.02,0.04,0.06,0.08,0.1]*5;
+            NumMov = zeros(nbMin,6);
             ROM = zeros(nbMin,10);
 
 
@@ -1423,11 +1803,13 @@ classdef Recording
                     stop = minIndx(i)-1;
                 end
 
-                ActivityLevel(i) = mean(MoveIdx(start:stop));
+                ActivityLevel(i) = mean(MoveIdx(start:stop))*100;
 
                 while (j <= length(movements) && movements(j).StartTime < (stop))
                     NumMov(i,1) = NumMov(i,1)+1;
-                    NumMov(i,2:6) = NumMov(i,2:6) + movements(i).DoFPart;
+                    if ~R.MissingElbow
+                        NumMov(i,2:6) = NumMov(i,2:6) + movements(i).DoFPart;
+                    end
                     j = j+1;
                 end
 
@@ -1437,50 +1819,53 @@ classdef Recording
                 %Time string
                 time_vec=start_time_vec;
                 time_vec(5)=time_vec(5)+i-1; %Increase minutes, if over 60, will be converted by datestr
-                time_str{i}=datestr(time_vec, 'yyyy_mm_ddT HH:MM:SS');
+                time_str{i}=datestr(time_vec, 'yyyy-mm-ddTHH:MM:SS');
             end
             ROM = rad2deg(ROM);
             
+            
+            figure
+            plot(ActivityLevel)
             
             %% Put everything into a CSV File
                 write_to=[pathstr '/CSV/' name '_' R.Arm '.csv'];
             
                 % Headers
-                headers = {'Time',...
-                'Activity Level',...
-                'Total Movements',...
-                '# Shoulder Abd/Add',...
-                '# Shoulder Flex/Ext',...
-                '# Shoulder Axial Rot',...
-                '# Elbow Flex/Ext',...
-                '# Wrist Pro/Sup',...
-                'Max Shoulder Abd',...
-                'Max Shoulder Flex',...
-                'Max Shoulder Axial Rot',...
-                'Max Elbow Flex',...
-                'Max Wrist Pro',...
-                'Min Shoulder Add',...
-                'Min Shouder Ext',...
-                'Min Shoulder Axial Rot',...
-                'Min Elbow Ext',...
-                'Min Wrist Sup'};
+                headers = {'TimeStamp', ...
+                    'ActivityLevel',...
+                    'TotalNbMovs',...
+                    'NbMovShoAbdAdd',...
+                    'NbMovShoFlexExt',...
+                    'NbMovShoAxRot',...
+                    'NbMovElbFlexExt',...
+                    'NbMoveWristProSup',...
+                    'MaxShoAbd',...
+                    'MaxShoFlex',...
+                    'MaxShoAxRot',...
+                    'MaxElbFlex',...
+                    'MaxWristPro',...
+                    'MinShoAdd',...
+                    'MinShoExt',...
+                    'MinShoAxRot',...
+                    'MinElbExt',...
+                    'MinWristSup'};
 
                 %Write header line
                 fid = fopen(write_to, 'w');
                 for i=1:length(headers)-1
-                    fprintf(fid, [headers{i} ', ']);
+                    fprintf(fid, [headers{i} ',']);
                 end
                 fprintf(fid, [headers{i+1} '\n']);
                 
                 %Write data
                 for i=1:length(ActivityLevel)
-                    fprintf(fid, '%s, ', time_str{i});
-                    fprintf(fid, '%.3f, ', ActivityLevel(i));
+                    fprintf(fid, '%s,', time_str{i});
+                    fprintf(fid, '%.3f,', ActivityLevel(i));
                     for k=1:size(NumMov, 2)
-                        fprintf(fid, '%.3f, ', NumMov(i,k));
+                        fprintf(fid, '%.3f,', NumMov(i,k));
                     end
                     for k=1:size(ROM, 2)-1
-                        fprintf(fid, '%.3f, ', ROM(i,k));
+                        fprintf(fid, '%.3f,', ROM(i,k));
                     end
                     fprintf(fid, '%.3f\n', ROM(i,k+1));
                 end

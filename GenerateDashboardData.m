@@ -57,7 +57,7 @@ for i = 1:length(minIndx)+1
         stop = minIndx(i)-1;
     end
     
-    ActivityLevel(i) = mean(MoveIdx(start:stop));
+    ActivityLevel(i) = mean(MoveIdx(start:stop))*100;
     
     while (j <= length(movements) && movements(j).StartTime < (stop))
         NumMov(i,1) = NumMov(i,1)+1;
