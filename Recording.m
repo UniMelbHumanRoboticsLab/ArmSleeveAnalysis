@@ -1598,7 +1598,7 @@ classdef Recording
                 if(write)
                     %imwrite(StaticHandMap{2}, 'StaticHandHeatMapCoronal.png');
                 end
-                suptitle('Static postures only');
+                sgtitle('Static postures only');
                 
                 if(write)
                     print(h, '-dtiff', 'StaticHandHeatMap.tif');
@@ -1658,7 +1658,7 @@ classdef Recording
                 if(write)
                     %imwrite(MovHandMap{2}, 'MovHandHeatMapCoronal.png');
                 end
-                suptitle('Movement postures only');
+                sgtitle('Movement postures only');
                 
                 if(write)
                     print(h, '-dtiff', 'MovHandHeatMap.tif');
